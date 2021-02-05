@@ -1,0 +1,55 @@
+#!/bin/bash
+
+# Gather Prometheus metrics from API using token from current session.
+#
+# References for Prometheus API
+# - https://prometheus.io/docs/prometheus/latest/querying/api/
+# - https://grafana.com/docs/grafana-cloud/billing-and-usage/prometheus/usage-analysis-api/
+
+OCP_TOKEN=$(oc whoami -t)
+NS=openshift-monitoring
+
+PROM_HOST=$(oc get route prometheus-k8s -n openshift-monitoring -o jsonpath='{.spec.host}{"\n"}')
+PROM_URL="https://${PROM_HOST}"
+
+OPTIONS="-k -s"
+DATE_FROM=$(date +%s)
+DATE_NOW=$(date +%s)
+
+function get_query() {
+    QUERY=$1
+    METRIC_FILE=${2:-$(echo ${QUERY} |awk -F'\(' '{print$1}')}
+
+    curl -s ${OPTIONS} \
+        -H "Authorization: Bearer ${OCP_TOKEN}" \
+        --data-urlencode "query=$QUERY" \
+        --data-urlencode "time=$DATE_NOW" \
+        $PROM_URL/api/v1/query > must-data/${METRIC_FILE}.json
+}
+
+
+Q="up"
+N="metric-up"
+echo "INFO: Getting query 'up'"
+get_query "$Q" "$N"
+
+# Get etcd related metrics
+## https://access.redhat.com/solutions/5489721
+Q="histogram_quantile(0.99, rate(etcd_disk_backend_commit_duration_seconds_bucket[5m]))"
+N="query-etcd_disk_backend_commit_duration_seconds_bucket-p99"
+echo "INFO: Getting query '$Q'"
+get_query "$Q" "$N"
+
+Q="histogram_quantile(0.99, rate(etcd_disk_wal_fsync_duration_seconds_bucket[5m]))"
+N="query-etcd_disk_wal_fsync_duration_seconds_bucket-p99"
+echo "INFO: Getting query '$Q'"
+get_query "$Q" "$N"
+
+Q="histogram_quantile(0.999, rate(etcd_disk_wal_fsync_duration_seconds_bucket[5m]))"
+N="query-etcd_disk_backend_commit_duration_seconds_bucket-p99.9"
+echo "INFO: Getting query '$Q'"
+get_query "$Q" "$N"
+
+# TODO
+# - /api/v1/label/__name__/values
+# - /api/v1/status/tsdb
