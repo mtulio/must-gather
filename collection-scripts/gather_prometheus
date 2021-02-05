@@ -4,7 +4,6 @@
 #
 # References for Prometheus API
 # - https://prometheus.io/docs/prometheus/latest/querying/api/
-# - https://grafana.com/docs/grafana-cloud/billing-and-usage/prometheus/usage-analysis-api/
 
 BASE_COLLECTION_PATH="/must-gather"
 PROMETHEUS_PATH="${BASE_COLLECTION_PATH}/prometheus_metrics/"
