@@ -1,12 +1,20 @@
 #!/bin/bash
 
-# Gather Prometheus metrics from API using token from current session.
+# Gather Monitoring metrics and Dashboards.
 #
-# References for Prometheus API
-# - https://prometheus.io/docs/prometheus/latest/querying/api/
+# References:
+# - Prometheus API: https://prometheus.io/docs/prometheus/latest/querying/api/
 
 BASE_COLLECTION_PATH="/must-gather"
-PROMETHEUS_PATH="${BASE_COLLECTION_PATH}/prometheus_metrics/"
+MONITORING_PATH="${BASE_COLLECTION_PATH}/monitoring/"
+PROM_PATH="${MONITORING_PATH}/prometheus"
+GF_PATH="${MONITORING_PATH}/grafana"
+
+_START=${GAHTER_METRICS_START_DATE:-"7 days ago"}
+DATE_START=$(date -d "${_START}" +%s)
+DATE_END=$(date +%s)
+# If the resolution is too low, the API will deny due to 11k limitation
+QUERY_STEP="1m"
 
 OCP_TOKEN=$(oc whoami -t)
 NS=openshift-monitoring
@@ -14,31 +22,57 @@ NS=openshift-monitoring
 PROM_HOST=$(oc get route prometheus-k8s -n openshift-monitoring -o jsonpath='{.spec.host}{"\n"}')
 PROM_URL="https://${PROM_HOST}"
 
-OPTIONS="-k -s"
-DATE_FROM=$(date +%s)
-DATE_NOW=$(date +%s)
+CURL_OPTIONS="-k -s"
 
-function get_query() {
+function get_range() {
     QUERY=$1
     METRIC_FILE=${2:-$(echo ${QUERY} |awk -F'\(' '{print$1}')}
 
-    curl -s ${OPTIONS} \
+    curl ${CURL_OPTIONS} \
         -H "Authorization: Bearer ${OCP_TOKEN}" \
-        --data-urlencode "query=$QUERY" \
-        --data-urlencode "time=$DATE_NOW" \
-        $PROM_URL/api/v1/query > ${PROMETHEUS_PATH}/${METRIC_FILE}.json
+        --data-urlencode "query=${QUERY}" \
+        --data-urlencode "start=${DATE_START}" \
+        --data-urlencode "end=${DATE_END}" \
+        --data-urlencode "step=${QUERY_STEP}" \
+        $PROM_URL/api/v1/query_range > ${PROM_PATH}/metric-${METRIC_FILE}.json
 }
 
-test -d ${PROMETHEUS_PATH} || mkdir -p ${PROMETHEUS_PATH}
-
-GATHER_METRICS="up
+# Default metrics, should be improved or "discovered" from dashboards
+# Those defaults was a sample. TODO improve this strategy.
+function load_default() {
+    export GATHER_METRICS_NAME="up
 etcd_disk_backend_commit_duration_seconds_bucket
 etcd_disk_wal_fsync_duration_seconds_bucket
 etcd_disk_wal_fsync_duration_seconds_bucket
 apiserver_flowcontrol_current_executing_requests
 apiserver_flowcontrol_request_concurrency_limit"
+}
 
-for METRIC in $GATHER_METRICS; do
-    echo "INFO: Getting query $METRIC"
-    get_query "$METRIC" "$METRIC"
+function setup() {
+    test -d ${PROM_PATH} || mkdir -p ${PROM_PATH}
+    test -d ${GF_PATH} || mkdir -p ${GF_PATH}
+
+    # loading the env from namespace, if not exists load from static
+    if [[ -z "${GATHER_METRICS_NAME}" ]]; then
+        oc -n openshift-monitoring get cm must-gather-env -o jsonpath='{.data.env}' > .env
+        source .env
+    fi
+    if [[ -z "${GATHER_METRICS_NAME}" ]]; then
+        echo "> Unable to find env GATHER_METRICS_NAME, loading default..."
+        load_default
+    fi
+}
+
+setup
+
+echo "#> Metrics will be collected from [$(date -d "@${DATE_START}")] to [$(date -d "@${DATE_END}")] <#"
+for METRIC in $GATHER_METRICS_NAME; do
+    echo "INFO: Getting metric range: $METRIC"
+    get_range "$METRIC" "$METRIC"
+done
+
+GATHER_METRICS_MATCH=""
+for METRIC in $GATHER_METRICS_MATCH; do
+    echo "INFO: Getting match expr: ${METRIC}"
+    get_expr "$METRIC" "$METRIC"
 done
