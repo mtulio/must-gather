@@ -1,9 +1,13 @@
 #!/bin/bash
 
-# Gather Monitoring metrics and Dashboards.
+# Gather Monitoring Metrics and Dashboards.
+# - Discovery Grafana dashboards and extract metrics defined there to be able to
+#   check the data points and playback on troubleshooting analysis.
+# - Gather custom metrics defined on ConfigMap, if it is not in any dashboard.
 #
 # References:
 # - Prometheus API: https://prometheus.io/docs/prometheus/latest/querying/api/
+# - Grafana API: https://grafana.com/docs/grafana/latest/http_api/dashboard/
 
 BASE_COLLECTION_PATH="/must-gather"
 MONITORING_PATH="${BASE_COLLECTION_PATH}/monitoring/"
@@ -22,9 +26,12 @@ NS=openshift-monitoring
 PROM_HOST=$(oc get route prometheus-k8s -n openshift-monitoring -o jsonpath='{.spec.host}{"\n"}')
 PROM_URL="https://${PROM_HOST}"
 
+GF_HOST=$(oc get route grafana -n openshift-monitoring -o jsonpath='{.spec.host}{"\n"}')
+GF_URL="https://${GF_HOST}"
+
 CURL_OPTIONS="-k -s"
 
-function get_range() {
+function prom_query_range() {
     QUERY=$1
     METRIC_FILE=${2:-$(echo ${QUERY} |awk -F'\(' '{print$1}')}
 
@@ -37,9 +44,14 @@ function get_range() {
         $PROM_URL/api/v1/query_range > ${PROM_PATH}/metric-${METRIC_FILE}.json
 }
 
-# Default metrics, should be improved or "discovered" from dashboards
+function setup() {
+    test -d ${PROM_PATH} || mkdir -p ${PROM_PATH}
+    test -d ${GF_PATH} || mkdir -p ${GF_PATH}
+}
+
+# (do we need that?) Default metrics, should be improved or "discovered" from dashboards
 # Those defaults was a sample. TODO improve this strategy.
-function load_default() {
+function load_default_metrics() {
     export GATHER_METRICS_NAME="up
 etcd_disk_backend_commit_duration_seconds_bucket
 etcd_disk_wal_fsync_duration_seconds_bucket
@@ -48,31 +60,70 @@ apiserver_flowcontrol_current_executing_requests
 apiserver_flowcontrol_request_concurrency_limit"
 }
 
-function setup() {
-    test -d ${PROM_PATH} || mkdir -p ${PROM_PATH}
-    test -d ${GF_PATH} || mkdir -p ${GF_PATH}
+# Read ConfigMap CM and gather it's metrics.
+# This CM should be in openshift-monitoring namespace.
+function get_custom_metrics() {
 
-    # loading the env from namespace, if not exists load from static
+    CM=must-gather-env
+    NS=openshift-monitoring
+
+    echo "INFO: Loading custom metrics from ConfigMap ${CM} on Namespace ${NS}"
     if [[ -z "${GATHER_METRICS_NAME}" ]]; then
-        oc -n openshift-monitoring get cm must-gather-env -o jsonpath='{.data.env}' > .env
+        oc get cm ${CM} -n ${NS} -o jsonpath='{.data.env}' > .env
         source .env
     fi
+
+    # Do we need those defaults?! May be useless here, we can save changes on this gather
     if [[ -z "${GATHER_METRICS_NAME}" ]]; then
         echo "> Unable to find env GATHER_METRICS_NAME, loading default..."
-        load_default
+        load_default_metrics
     fi
+
+    echo "#> Metrics will be collected from [$(date -d "@${DATE_START}")] to [$(date -d "@${DATE_END}")] <#"
+    for METRIC in $GATHER_METRICS_NAME; do
+        echo "INFO: Getting metric range: $METRIC"
+        prom_query_range "$METRIC" "$METRIC"
+    done
 }
 
+# List all metrics from default folder - where OCP store it's dashboards
+function gf_get_dashboards() {
+    echo "INFO: Getting Dashboards from default Folder"
+    curl ${CURL_OPTIONS} \
+        -H "Authorization: Bearer ${OCP_TOKEN}" \
+        $GF_URL/api/search?folderIds=1 > ${GF_PATH}/dashboards.json
+}
+
+# Read all dashboards, on default folder, and extract metrics/expressions defined on.
+# Then collect it's metrics from Prometheus API.
+function gf_extract_metrics_from_dashboards() {
+    jq -r '.[] | [.uri, .uid] | @tsv' ${GF_PATH}/dashboards.json |awk -F'db/' '{print$2}'|awk '{print$1":"$2}' > ${GF_PATH}/dashboards.txt
+    while read DASHBOARD; do
+        NAME=$(echo $DASHBOARD |awk -F':' '{print$1}')
+        DUID=$(echo $DASHBOARD |awk -F':' '{print$2}')
+
+        echo "INFO: Getting Dashboard ${NAME}"
+        curl ${CURL_OPTIONS} \
+            -H "Authorization: Bearer ${OCP_TOKEN}" \
+            $GF_URL/api/dashboards/uid/${DUID} > ${GF_PATH}/dashboard_${NAME}.json
+
+        jq .dashboard.rows[].panels[].targets[].expr ${GF_PATH}/dashboard_${NAME}.json |egrep -o '\((\w+){\)*' |tr -d '({' > ${GF_PATH}/dashboard_${NAME}_metrics.txt
+    done < ${GF_PATH}/dashboards.txt
+
+    echo "INFO: Extracting metrics from dashboards"
+    sort -u ${GF_PATH}/dashboard_*_metrics.txt > ${GF_PATH}/dashboards_metrics.txt
+    while read METRIC; do
+        echo "INFO: Getting metric range: $METRIC"
+        prom_query_range "$METRIC" "$METRIC"
+    done < ${GF_PATH}/dashboards_metrics.txt
+}
+
+# Start
 setup
 
-echo "#> Metrics will be collected from [$(date -d "@${DATE_START}")] to [$(date -d "@${DATE_END}")] <#"
-for METRIC in $GATHER_METRICS_NAME; do
-    echo "INFO: Getting metric range: $METRIC"
-    get_range "$METRIC" "$METRIC"
-done
+# Get metrics from ConfigMap or static
+get_custom_metrics
 
-GATHER_METRICS_MATCH=""
-for METRIC in $GATHER_METRICS_MATCH; do
-    echo "INFO: Getting match expr: ${METRIC}"
-    get_expr "$METRIC" "$METRIC"
-done
+# Get Grafana dashboard and it's metrics data points
+gf_get_dashboards
+gf_extract_metrics_from_dashboards
