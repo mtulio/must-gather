@@ -45,6 +45,11 @@ function prom_query_range() {
 }
 
 function setup() {
+
+    curl -s -o /usr/local/bin/jq \
+      http://stedolan.github.io/jq/download/linux64/jq && \
+      chmod +x /usr/local/bin/jq
+
     test -d ${PROM_PATH} || mkdir -p ${PROM_PATH}
     test -d ${GF_PATH} || mkdir -p ${GF_PATH}
 }
@@ -97,7 +102,7 @@ function gf_get_dashboards() {
 # Read all dashboards, on default folder, and extract metrics/expressions defined on.
 # Then collect it's metrics from Prometheus API.
 function gf_extract_metrics_from_dashboards() {
-    jq -r '.[] | [.uri, .uid] | @tsv' ${GF_PATH}/dashboards.json |awk -F'db/' '{print$2}'|awk '{print$1":"$2}' > ${GF_PATH}/dashboards.txt
+    jq -r '.[] | .uri +":"+ .uid' ${GF_PATH}/dashboards.json |awk -F'db/' '{print$2}'|awk '{print$1":"$2}' > ${GF_PATH}/dashboards.txt
     while read DASHBOARD; do
         NAME=$(echo $DASHBOARD |awk -F':' '{print$1}')
         DUID=$(echo $DASHBOARD |awk -F':' '{print$2}')
@@ -127,3 +132,6 @@ get_custom_metrics
 # Get Grafana dashboard and it's metrics data points
 gf_get_dashboards
 gf_extract_metrics_from_dashboards
+
+# force disk flush to ensure that all data gathered is accessible in the copy container
+sync
