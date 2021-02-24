@@ -1,9 +1,16 @@
 #!/bin/bash
 
 # Gather Monitoring Metrics and Dashboards.
-# - Discovery Grafana dashboards and extract metrics defined there to be able to
-#   check the data points and playback on troubleshooting analysis.
-# - Gather custom metrics defined on ConfigMap, if it is not in any dashboard.
+# - Discovery Grafana dashboards, save and extract metrics name.
+# - Gather custom metrics defined on ConfigMap. If it is not in any dashboards.
+#
+# ConfigMap:
+# - GAHTER_MONITORING_START_DATE: unix date syntax. Default: "7 days ago".
+# - GATHER_MONITORING_METRICS_NAME: list of additional metrics name to be collected.
+#
+# To create the ConfigMap:
+# $ echo -e 'export GATHER_MONITORING_METRICS_NAME="up"\nexport GAHTER_MONITORING_START_DATE="1 day ago"' > env
+# $ oc create configmap must-gather-env -n openshift-monitoring --from-file=env=env
 #
 # References:
 # - Prometheus API: https://prometheus.io/docs/prometheus/latest/querying/api/
@@ -14,15 +21,6 @@ MONITORING_PATH="${BASE_COLLECTION_PATH}/monitoring/"
 PROM_PATH="${MONITORING_PATH}/prometheus"
 GF_PATH="${MONITORING_PATH}/grafana"
 
-_START=${GAHTER_METRICS_START_DATE:-"7 days ago"}
-DATE_START=$(date -d "${_START}" +%s)
-DATE_END=$(date +%s)
-# If the resolution is too low, the API will deny due to 11k limitation
-QUERY_STEP="1m"
-
-OCP_TOKEN=$(oc whoami -t)
-NS=openshift-monitoring
-
 PROM_HOST=$(oc get route prometheus-k8s -n openshift-monitoring -o jsonpath='{.spec.host}{"\n"}')
 PROM_URL="https://${PROM_HOST}"
 
@@ -30,6 +28,22 @@ GF_HOST=$(oc get route grafana -n openshift-monitoring -o jsonpath='{.spec.host}
 GF_URL="https://${GF_HOST}"
 
 CURL_OPTIONS="-k -s"
+
+OCP_TOKEN=$(oc whoami -t)
+CM_ENV=must-gather-env
+NS=openshift-monitoring
+
+# Read Config
+if [[ -z "${GATHER_MONITORING_METRICS_NAME}" ]]; then \
+    oc get cm ${CM_ENV} -n ${NS} -o jsonpath='{.data.env}' > .env; \
+    source .env; \
+fi
+
+_START=${GAHTER_MONITORING_START_DATE:-"7 days ago"}
+DATE_START=$(date -d "${_START}" +%s)
+DATE_END=$(date +%s)
+# If the resolution is too low, the API will deny due to 11k limitation
+QUERY_STEP="1m"
 
 function prom_query_range() {
     QUERY=$1
@@ -46,6 +60,7 @@ function prom_query_range() {
 
 function setup() {
 
+    # install small jq binary (required to parser)
     curl -s -o /usr/local/bin/jq \
       http://stedolan.github.io/jq/download/linux64/jq && \
       chmod +x /usr/local/bin/jq
@@ -54,38 +69,18 @@ function setup() {
     test -d ${GF_PATH} || mkdir -p ${GF_PATH}
 }
 
-# (do we need that?) Default metrics, should be improved or "discovered" from dashboards
-# Those defaults was a sample. TODO improve this strategy.
-function load_default_metrics() {
-    export GATHER_METRICS_NAME="up
-etcd_disk_backend_commit_duration_seconds_bucket
-etcd_disk_wal_fsync_duration_seconds_bucket
-etcd_disk_wal_fsync_duration_seconds_bucket
-apiserver_flowcontrol_current_executing_requests
-apiserver_flowcontrol_request_concurrency_limit"
-}
-
 # Read ConfigMap CM and gather it's metrics.
 # This CM should be in openshift-monitoring namespace.
 function get_custom_metrics() {
 
-    CM=must-gather-env
-    NS=openshift-monitoring
-
     echo "INFO: Loading custom metrics from ConfigMap ${CM} on Namespace ${NS}"
-    if [[ -z "${GATHER_METRICS_NAME}" ]]; then
-        oc get cm ${CM} -n ${NS} -o jsonpath='{.data.env}' > .env
-        source .env
-    fi
-
-    # Do we need those defaults?! May be useless here, we can save changes on this gather
-    if [[ -z "${GATHER_METRICS_NAME}" ]]; then
-        echo "> Unable to find env GATHER_METRICS_NAME, loading default..."
-        load_default_metrics
+    if [[ -z "${GATHER_MONITORING_METRICS_NAME}" ]]; then
+        echo "> Unable to find env GATHER_MONITORING_METRICS_NAME, ignoring..."
+        return
     fi
 
     echo "#> Metrics will be collected from [$(date -d "@${DATE_START}")] to [$(date -d "@${DATE_END}")] <#"
-    for METRIC in $GATHER_METRICS_NAME; do
+    for METRIC in $GATHER_MONITORING_METRICS_NAME; do
         echo "INFO: Getting metric range: $METRIC"
         prom_query_range "$METRIC" "$METRIC"
     done
@@ -126,7 +121,7 @@ function gf_extract_metrics_from_dashboards() {
 # Start
 setup
 
-# Get metrics from ConfigMap or static
+# Get metrics custom metrics
 get_custom_metrics
 
 # Get Grafana dashboard and it's metrics data points
