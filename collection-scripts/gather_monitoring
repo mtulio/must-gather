@@ -6,8 +6,6 @@ set -o errexit
 set -o pipefail
 
 #Safeguards
-set -o nounset
-set -o errexit
 set -o pipefail
 
 function install_jq() {
