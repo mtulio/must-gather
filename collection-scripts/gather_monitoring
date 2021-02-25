@@ -1,14 +1,14 @@
 #!/bin/bash
 
 # Gather Monitoring Metrics and Dashboards.
-# - Discovery Grafana dashboards, save and extract metrics name.
-# - Gather custom metrics defined on ConfigMap. If it is not in any dashboards.
+# - Discovery and save Grafana dashboards, extracting the metrics' datapoints from Prometheus.
+# - Gather custom metrics (when defined on Config variables).
 #
-# ConfigMap:
+# Config variables:
 # - GAHTER_MONIT_START_DATE: date string (date -d). Default: "7 days ago".
 # - GAHTER_MONIT_QUERY_STEP: metric resolution to get from Prometheus. Default: "1m".
-# - GATHER_MONIT_CUSTOM_METRICS: list of additional metrics name to be collected.
-# - GATHER_MONIT_GRAFANA_DISCOVERY: manage Grafana metrics discovery. 'no' is disabled. Default: yes
+# - GATHER_MONIT_CUSTOM_METRICS: list of additional metrics name to be collected. Default: Undefined
+# - GATHER_MONIT_GRAFANA_DISCOVERY: manage Grafana metrics discovery, 'no' is disabled. Default: != 'no'
 #
 # To create the ConfigMap:
 # $ echo -e 'GAHTER_MONIT_START_DATE="15 days ago"\nGAHTER_MONIT_QUERY_STEP="5m"' > env
@@ -52,19 +52,6 @@ DATE_END=$(date +%s)
 # If the resolution is too low, the API will deny due to 11k limitation
 QUERY_STEP=${GAHTER_MONIT_QUERY_STEP:-"1m"}
 
-function prom_query_range() {
-    QUERY=$1
-    METRIC_FILE=${2:-$(echo ${QUERY} |awk -F'\(' '{print$1}')}
-
-    curl ${CURL_OPTIONS} \
-        -H "Authorization: Bearer ${OCP_TOKEN}" \
-        --data-urlencode "query=${QUERY}" \
-        --data-urlencode "start=${DATE_START}" \
-        --data-urlencode "end=${DATE_END}" \
-        --data-urlencode "step=${QUERY_STEP}" \
-        $PROM_URL/api/v1/query_range > ${PROM_PATH}/metric-${METRIC_FILE}.json
-}
-
 function setup() {
     test -d ${PROM_PATH} || mkdir -p ${PROM_PATH}
     test -d ${GF_PATH} || mkdir -p ${GF_PATH}
@@ -83,8 +70,21 @@ function install_jq() {
       chmod +x ${JQ_PATH}
 }
 
-# Read ConfigMap CM and gather it's metrics.
-# This CM should be in openshift-monitoring namespace.
+# Make a query (single metric) to Prometheus API /api/v1/query_range
+function prom_query_range() {
+    QUERY=$1
+    METRIC_FILE=${2:-$(echo ${QUERY} |awk -F'\(' '{print$1}')}
+
+    curl ${CURL_OPTIONS} \
+        -H "Authorization: Bearer ${OCP_TOKEN}" \
+        --data-urlencode "query=${QUERY}" \
+        --data-urlencode "start=${DATE_START}" \
+        --data-urlencode "end=${DATE_END}" \
+        --data-urlencode "step=${QUERY_STEP}" \
+        $PROM_URL/api/v1/query_range > ${PROM_PATH}/metric-${METRIC_FILE}.json
+}
+
+# Gather metrics defined on environment GATHER_MONIT_CUSTOM_METRICS
 function get_custom_metrics() {
 
     if [[ -z "${GATHER_MONIT_CUSTOM_METRICS}" ]]; then
@@ -98,7 +98,7 @@ function get_custom_metrics() {
     done
 }
 
-# List all metrics from default folder - where OCP store it's dashboards
+# List all Dashboards from default folder (id=1) on Grafana - where OCP store it's dashboards
 function gf_discovery_dashboards() {
     echo "INFO: Discovery Dashboards from default Folder"
     curl ${CURL_OPTIONS} \
@@ -106,8 +106,8 @@ function gf_discovery_dashboards() {
         $GF_URL/api/search?folderIds=1 > ${GF_PATH}/dashboards.json
 }
 
-# Read all dashboards, on default folder, and extract metrics/expressions defined on.
-# Then collect it's metrics from Prometheus API.
+# Parse and download all Dashboards discovered from Default folder,
+# then collect it's metrics from Prometheus API.
 function gf_discovery_metrics_from_dashboards() {
 
     install_jq
