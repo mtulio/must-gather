@@ -21,8 +21,8 @@
 # - Grafana API: https://grafana.com/docs/grafana/latest/http_api/dashboard/
 
 #Safeguards
-set -o nounset
-set -o errexit
+#set -o nounset
+#set -o errexit
 set -o pipefail
 
 function install_jq() {
