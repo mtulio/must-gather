@@ -21,8 +21,6 @@
 # - Grafana API: https://grafana.com/docs/grafana/latest/http_api/dashboard/
 
 #Safeguards
-#set -o nounset
-#set -o errexit
 set -o pipefail
 
 function install_jq() {
@@ -173,6 +171,9 @@ function init() {
 }
 
 function get_alerts() {
+
+    set -o nounset
+    set -o errexit
 
     SA_TOKEN="$(oc sa get-token default)"
 
