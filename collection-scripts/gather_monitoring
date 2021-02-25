@@ -54,7 +54,7 @@ function get_custom_metrics() {
         return
     fi
 
-    echo "#> Metrics will be collected from [$(date -d "@${DATE_START}")] to [$(date -d "@${DATE_END}")] <#"
+    echo "INFO: Metrics will be collected from [$(date -d "@${DATE_START}")] to [$(date -d "@${DATE_END}")]"
     for METRIC in $GATHER_MONIT_CUSTOM_METRICS; do
         echo "INFO: Getting metric range: $METRIC"
         prom_query_range "$METRIC" "$METRIC"
