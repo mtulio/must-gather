@@ -20,11 +20,6 @@
 # - Prometheus API: https://prometheus.io/docs/prometheus/latest/querying/api/
 # - Grafana API: https://grafana.com/docs/grafana/latest/http_api/dashboard/
 
-function setup() {
-    test -d ${PROM_PATH} || mkdir -p ${PROM_PATH}
-    test -d ${GF_PATH} || mkdir -p ${GF_PATH}
-}
-
 function install_jq() {
 
     if [[ -f ${JQ_PATH} ]]; then
@@ -122,12 +117,13 @@ function get_grafana_metrics() {
 
 # Init
 function init() {
-    setup
 
     BASE_COLLECTION_PATH="/must-gather"
     MONITORING_PATH="${BASE_COLLECTION_PATH}/monitoring"
     PROM_PATH="${MONITORING_PATH}/prometheus"
     GF_PATH="${MONITORING_PATH}/grafana"
+    test -d ${PROM_PATH} || mkdir -p ${PROM_PATH}
+    test -d ${GF_PATH} || mkdir -p ${GF_PATH}
 
     PROM_HOST=$(oc get route prometheus-k8s -n openshift-monitoring -o jsonpath='{.spec.host}{"\n"}')
     PROM_URL="https://${PROM_HOST}"
