@@ -143,7 +143,7 @@ function init() {
     MONIT_ENV=must-gather-env
 
     echo "INFO: Loading custom metrics from ConfigMap ${MONIT_ENV} on project ${MONIT_NS}"
-    oc get cm ${MONIT_ENV} -n ${MONIT_NS} -o jsonpath='{.data.env}' > ${MONITORING_PATH}/env ${MONITORING_PATH}/env.err
+    oc get cm ${MONIT_ENV} -n ${MONIT_NS} -o jsonpath='{.data.env}' > ${MONITORING_PATH}/env 2> ${MONITORING_PATH}/env.err
     if [[ $? -eq 0 ]]; then
         source ${MONITORING_PATH}/env
     else
