@@ -109,7 +109,7 @@ function gf_discovery_metrics_from_dashboards() {
 
 function get_grafana_metrics() {
     ENABLE_DISCOVERY=${GATHER_MONIT_GRAFANA_DISCOVERY:-"yes"}
-    if [[ "${ENABLE_DISCOVERY}" -eq "no" ]]; then
+    if [[ "${ENABLE_DISCOVERY}" == "no" ]]; then
         echo "INFO: Ignoring metrics from Grafana dashboards. GATHER_MONIT_GRAFANA_DISCOVERY=no"
         return
     fi
