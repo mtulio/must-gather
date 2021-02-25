@@ -108,8 +108,8 @@ function gf_discovery_metrics_from_dashboards() {
 }
 
 function get_grafana_metrics() {
-
-    if [[ "${GATHER_MONIT_GRAFANA_DISCOVERY}" -eq "no" ]]; then
+    ENABLE_DISCOVERY=${GATHER_MONIT_GRAFANA_DISCOVERY:-"yes"}
+    if [[ "${ENABLE_DISCOVERY}" -eq "no" ]]; then
         echo "INFO: Ignoring metrics from Grafana dashboards. GATHER_MONIT_GRAFANA_DISCOVERY=no"
         return
     fi
@@ -125,7 +125,7 @@ function init() {
     setup
 
     BASE_COLLECTION_PATH="/must-gather"
-    MONITORING_PATH="${BASE_COLLECTION_PATH}/monitoring/"
+    MONITORING_PATH="${BASE_COLLECTION_PATH}/monitoring"
     PROM_PATH="${MONITORING_PATH}/prometheus"
     GF_PATH="${MONITORING_PATH}/grafana"
 
