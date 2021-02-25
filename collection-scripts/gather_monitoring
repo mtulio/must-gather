@@ -142,9 +142,10 @@ function init() {
     MONIT_NS=openshift-monitoring
     MONIT_ENV=must-gather-env
 
-    echo "INFO: Loading custom metrics from ConfigMap ${MONIT_ENV} on project ${MONIT_NS}"
+    echo "INFO: Check custom metrics from ConfigMap ${MONIT_ENV} on project ${MONIT_NS}"
     oc get cm ${MONIT_ENV} -n ${MONIT_NS} -o jsonpath='{.data.env}' > ${MONITORING_PATH}/env 2> ${MONITORING_PATH}/env.err
     if [[ $? -eq 0 ]]; then
+        echo "INFO:Loading custom environments from ${MONITORING_PATH}/env"
         source ${MONITORING_PATH}/env
     else
         echo "INFO: Unable to load custom environments from ConfigMap, ignoring. Error saved on ${MONITORING_PATH}/env.err"
@@ -156,6 +157,13 @@ function init() {
     # If the resolution is too low, the API will deny due to 11k limitation
     QUERY_STEP=${GAHTER_MONIT_QUERY_STEP:-"1m"}
 
+    echo "INFO: Metrics config: from=${DATE_START} to=${DATE_END} step=${QUERY_STEP}"
+    echo "INFO: Prometheus endpoint URL: ${PROM_URL}"
+    echo "INFO: Grafana  endpoint URL: ${GF_URL}"
+    echo "INFO: Config Env GATHER_MONIT_GRAFANA_DISCOVERY: ${GATHER_MONIT_GRAFANA_DISCOVERY}"
+    echo "INFO: Config Env GAHTER_MONIT_START_DATE: ${GAHTER_MONIT_START_DATE}"
+    echo "INFO: Config Env GAHTER_MONIT_QUERY_STEP: ${GAHTER_MONIT_QUERY_STEP}"
+    echo "INFO: Config Env GATHER_MONIT_CUSTOM_METRICS: ${GATHER_MONIT_CUSTOM_METRICS}"
 }
 
 # Main
