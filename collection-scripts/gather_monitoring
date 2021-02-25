@@ -20,38 +20,6 @@
 # - Prometheus API: https://prometheus.io/docs/prometheus/latest/querying/api/
 # - Grafana API: https://grafana.com/docs/grafana/latest/http_api/dashboard/
 
-BASE_COLLECTION_PATH="/must-gather"
-MONITORING_PATH="${BASE_COLLECTION_PATH}/monitoring/"
-PROM_PATH="${MONITORING_PATH}/prometheus"
-GF_PATH="${MONITORING_PATH}/grafana"
-
-PROM_HOST=$(oc get route prometheus-k8s -n openshift-monitoring -o jsonpath='{.spec.host}{"\n"}')
-PROM_URL="https://${PROM_HOST}"
-
-GF_HOST=$(oc get route grafana -n openshift-monitoring -o jsonpath='{.spec.host}{"\n"}')
-GF_URL="https://${GF_HOST}"
-
-CURL_OPTIONS="-k -s"
-JQ_PATH=$(which jq 2>/dev/null)
-
-OCP_TOKEN=$(oc whoami -t)
-MONIT_NS=openshift-monitoring
-MONIT_ENV=must-gather-env
-
-echo "INFO: Loading custom metrics from ConfigMap ${MONIT_ENV} on project ${MONIT_NS}"
-oc get cm ${MONIT_ENV} -n ${MONIT_NS} -o jsonpath='{.data.env}' > ${MONITORING_PATH}/env ${MONITORING_PATH}/env.err
-if [[ $? -eq 0 ]]; then
-    source ${MONITORING_PATH}/env
-else
-    echo "INFO: Unable to load custom environments from ConfigMap, ignoring. Error saved on ${MONITORING_PATH}/env.err"
-fi
-
-_START=${GAHTER_MONIT_START_DATE:-"7 days ago"}
-DATE_START=$(date -d "${_START}" +%s)
-DATE_END=$(date +%s)
-# If the resolution is too low, the API will deny due to 11k limitation
-QUERY_STEP=${GAHTER_MONIT_QUERY_STEP:-"1m"}
-
 function setup() {
     test -d ${PROM_PATH} || mkdir -p ${PROM_PATH}
     test -d ${GF_PATH} || mkdir -p ${GF_PATH}
@@ -111,7 +79,11 @@ function gf_discovery_dashboards() {
 function gf_discovery_metrics_from_dashboards() {
 
     install_jq
-    ${JQ_PATH} -r '.[] | .uri +":"+ .uid' ${GF_PATH}/dashboards.json |awk -F'db/' '{print$2}'|awk '{print$1":"$2}' > ${GF_PATH}/dashboards.txt
+    ${JQ_PATH} \
+        -r '.[] | .uri +":"+ .uid' ${GF_PATH}/dashboards.json \
+        | awk -F'db/' '{print$2}' \
+        | awk '{print$1":"$2}' > ${GF_PATH}/dashboards.txt
+
     while read DASHBOARD; do
         NAME=$(echo $DASHBOARD |awk -F':' '{print$1}')
         DUID=$(echo $DASHBOARD |awk -F':' '{print$2}')
@@ -121,7 +93,10 @@ function gf_discovery_metrics_from_dashboards() {
             -H "Authorization: Bearer ${OCP_TOKEN}" \
             $GF_URL/api/dashboards/uid/${DUID} > ${GF_PATH}/dashboard_${NAME}.json
 
-        ${JQ_PATH} .dashboard.rows[].panels[].targets[].expr ${GF_PATH}/dashboard_${NAME}.json |egrep -o '\((\w+){\)*' |tr -d '({' > ${GF_PATH}/dashboard_${NAME}_metrics.txt
+        ${JQ_PATH} \
+            .dashboard.rows[].panels[].targets[].expr ${GF_PATH}/dashboard_${NAME}.json \
+            | egrep -o '\((\w+){\)*' \
+            | tr -d '({' > ${GF_PATH}/dashboard_${NAME}_metrics.txt
     done < ${GF_PATH}/dashboards.txt
 
     echo "INFO: Extracting metrics from dashboards"
@@ -144,8 +119,47 @@ function get_grafana_metrics() {
     gf_discovery_metrics_from_dashboards
 }
 
+
+# Init
+function init() {
+    setup
+
+    BASE_COLLECTION_PATH="/must-gather"
+    MONITORING_PATH="${BASE_COLLECTION_PATH}/monitoring/"
+    PROM_PATH="${MONITORING_PATH}/prometheus"
+    GF_PATH="${MONITORING_PATH}/grafana"
+
+    PROM_HOST=$(oc get route prometheus-k8s -n openshift-monitoring -o jsonpath='{.spec.host}{"\n"}')
+    PROM_URL="https://${PROM_HOST}"
+
+    GF_HOST=$(oc get route grafana -n openshift-monitoring -o jsonpath='{.spec.host}{"\n"}')
+    GF_URL="https://${GF_HOST}"
+
+    CURL_OPTIONS="-k -s"
+    JQ_PATH=$(which jq 2>/dev/null)
+
+    OCP_TOKEN=$(oc whoami -t)
+    MONIT_NS=openshift-monitoring
+    MONIT_ENV=must-gather-env
+
+    echo "INFO: Loading custom metrics from ConfigMap ${MONIT_ENV} on project ${MONIT_NS}"
+    oc get cm ${MONIT_ENV} -n ${MONIT_NS} -o jsonpath='{.data.env}' > ${MONITORING_PATH}/env ${MONITORING_PATH}/env.err
+    if [[ $? -eq 0 ]]; then
+        source ${MONITORING_PATH}/env
+    else
+        echo "INFO: Unable to load custom environments from ConfigMap, ignoring. Error saved on ${MONITORING_PATH}/env.err"
+    fi
+
+    _START=${GAHTER_MONIT_START_DATE:-"7 days ago"}
+    DATE_START=$(date -d "${_START}" +%s)
+    DATE_END=$(date +%s)
+    # If the resolution is too low, the API will deny due to 11k limitation
+    QUERY_STEP=${GAHTER_MONIT_QUERY_STEP:-"1m"}
+
+}
+
 # Main
-setup
+init
 
 # Get custom metrics custom
 get_custom_metrics
