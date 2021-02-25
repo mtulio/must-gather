@@ -5,11 +5,15 @@
 # - Gather custom metrics defined on ConfigMap. If it is not in any dashboards.
 #
 # ConfigMap:
-# - GAHTER_MONITORING_START_DATE: unix date syntax. Default: "7 days ago".
-# - GATHER_MONITORING_METRICS_NAME: list of additional metrics name to be collected.
+# - GAHTER_MONIT_START_DATE: date string (date -d). Default: "7 days ago".
+# - GAHTER_MONIT_QUERY_STEP: metric resolution to get from Prometheus. Default: "1m".
+# - GATHER_MONIT_CUSTOM_METRICS: list of additional metrics name to be collected.
+# - GATHER_MONIT_GRAFANA_DISCOVERY: manage Grafana metrics discovery. 'no' is disabled. Default: yes
 #
 # To create the ConfigMap:
-# $ echo -e 'export GATHER_MONITORING_METRICS_NAME="up"\nexport GAHTER_MONITORING_START_DATE="1 day ago"' > env
+# $ echo -e 'GAHTER_MONIT_START_DATE="15 days ago"\nGAHTER_MONIT_QUERY_STEP="5m"' > env
+# $ echo -e 'GATHER_MONIT_CUSTOM_METRICS="up"' > env
+# $ echo -e 'GATHER_MONIT_GRAFANA_DISCOVERY="no"\nGATHER_MONIT_CUSTOM_METRICS="up"' > env
 # $ oc create configmap must-gather-env -n openshift-monitoring --from-file=env=env
 #
 # References:
@@ -28,22 +32,25 @@ GF_HOST=$(oc get route grafana -n openshift-monitoring -o jsonpath='{.spec.host}
 GF_URL="https://${GF_HOST}"
 
 CURL_OPTIONS="-k -s"
+JQ_PATH=$(which jq 2>/dev/null)
 
 OCP_TOKEN=$(oc whoami -t)
-CM_ENV=must-gather-env
-NS=openshift-monitoring
+MONIT_NS=openshift-monitoring
+MONIT_ENV=must-gather-env
 
-# Read Config
-if [[ -z "${GATHER_MONITORING_METRICS_NAME}" ]]; then \
-    oc get cm ${CM_ENV} -n ${NS} -o jsonpath='{.data.env}' > .env; \
-    source .env; \
+echo "INFO: Loading custom metrics from ConfigMap ${MONIT_ENV} on project ${MONIT_NS}"
+oc get cm ${MONIT_ENV} -n ${MONIT_NS} -o jsonpath='{.data.env}' > ${MONITORING_PATH}/env ${MONITORING_PATH}/env.err
+if [[ $? -eq 0 ]]; then
+    source ${MONITORING_PATH}/env
+else
+    echo "INFO: Unable to load custom environments from ConfigMap, ignoring. Error saved on ${MONITORING_PATH}/env.err"
 fi
 
-_START=${GAHTER_MONITORING_START_DATE:-"7 days ago"}
+_START=${GAHTER_MONIT_START_DATE:-"7 days ago"}
 DATE_START=$(date -d "${_START}" +%s)
 DATE_END=$(date +%s)
 # If the resolution is too low, the API will deny due to 11k limitation
-QUERY_STEP="1m"
+QUERY_STEP=${GAHTER_MONIT_QUERY_STEP:-"1m"}
 
 function prom_query_range() {
     QUERY=$1
@@ -59,36 +66,41 @@ function prom_query_range() {
 }
 
 function setup() {
-
-    # install small jq binary (required to parser)
-    curl -s -o /usr/local/bin/jq \
-      http://stedolan.github.io/jq/download/linux64/jq && \
-      chmod +x /usr/local/bin/jq
-
     test -d ${PROM_PATH} || mkdir -p ${PROM_PATH}
     test -d ${GF_PATH} || mkdir -p ${GF_PATH}
+}
+
+function install_jq() {
+
+    if [[ -f ${JQ_PATH} ]]; then
+        return
+    fi
+
+    # install jq from binary (required to Dashnoard parser)
+    export JQ_PATH=/usr/local/bin/jq
+    curl -s -o ${JQ_PATH} \
+      http://stedolan.github.io/jq/download/linux64/jq && \
+      chmod +x ${JQ_PATH}
 }
 
 # Read ConfigMap CM and gather it's metrics.
 # This CM should be in openshift-monitoring namespace.
 function get_custom_metrics() {
 
-    echo "INFO: Loading custom metrics from ConfigMap ${CM} on Namespace ${NS}"
-    if [[ -z "${GATHER_MONITORING_METRICS_NAME}" ]]; then
-        echo "> Unable to find env GATHER_MONITORING_METRICS_NAME, ignoring..."
+    if [[ -z "${GATHER_MONIT_CUSTOM_METRICS}" ]]; then
         return
     fi
 
     echo "#> Metrics will be collected from [$(date -d "@${DATE_START}")] to [$(date -d "@${DATE_END}")] <#"
-    for METRIC in $GATHER_MONITORING_METRICS_NAME; do
+    for METRIC in $GATHER_MONIT_CUSTOM_METRICS; do
         echo "INFO: Getting metric range: $METRIC"
         prom_query_range "$METRIC" "$METRIC"
     done
 }
 
 # List all metrics from default folder - where OCP store it's dashboards
-function gf_get_dashboards() {
-    echo "INFO: Getting Dashboards from default Folder"
+function gf_discovery_dashboards() {
+    echo "INFO: Discovery Dashboards from default Folder"
     curl ${CURL_OPTIONS} \
         -H "Authorization: Bearer ${OCP_TOKEN}" \
         $GF_URL/api/search?folderIds=1 > ${GF_PATH}/dashboards.json
@@ -96,8 +108,10 @@ function gf_get_dashboards() {
 
 # Read all dashboards, on default folder, and extract metrics/expressions defined on.
 # Then collect it's metrics from Prometheus API.
-function gf_extract_metrics_from_dashboards() {
-    jq -r '.[] | .uri +":"+ .uid' ${GF_PATH}/dashboards.json |awk -F'db/' '{print$2}'|awk '{print$1":"$2}' > ${GF_PATH}/dashboards.txt
+function gf_discovery_metrics_from_dashboards() {
+
+    install_jq
+    ${JQ_PATH} -r '.[] | .uri +":"+ .uid' ${GF_PATH}/dashboards.json |awk -F'db/' '{print$2}'|awk '{print$1":"$2}' > ${GF_PATH}/dashboards.txt
     while read DASHBOARD; do
         NAME=$(echo $DASHBOARD |awk -F':' '{print$1}')
         DUID=$(echo $DASHBOARD |awk -F':' '{print$2}')
@@ -107,7 +121,7 @@ function gf_extract_metrics_from_dashboards() {
             -H "Authorization: Bearer ${OCP_TOKEN}" \
             $GF_URL/api/dashboards/uid/${DUID} > ${GF_PATH}/dashboard_${NAME}.json
 
-        jq .dashboard.rows[].panels[].targets[].expr ${GF_PATH}/dashboard_${NAME}.json |egrep -o '\((\w+){\)*' |tr -d '({' > ${GF_PATH}/dashboard_${NAME}_metrics.txt
+        ${JQ_PATH} .dashboard.rows[].panels[].targets[].expr ${GF_PATH}/dashboard_${NAME}.json |egrep -o '\((\w+){\)*' |tr -d '({' > ${GF_PATH}/dashboard_${NAME}_metrics.txt
     done < ${GF_PATH}/dashboards.txt
 
     echo "INFO: Extracting metrics from dashboards"
@@ -118,15 +132,26 @@ function gf_extract_metrics_from_dashboards() {
     done < ${GF_PATH}/dashboards_metrics.txt
 }
 
-# Start
+function get_grafana_metrics() {
+
+    if [[ "${GATHER_MONIT_GRAFANA_DISCOVERY}" -eq "no" ]]; then
+        echo "INFO: Ignoring metrics from Grafana dashboards. GATHER_MONIT_GRAFANA_DISCOVERY=no"
+        return
+    fi
+
+    echo "INFO: Get metrics from Grafana dashboards"
+    gf_discovery_dashboards
+    gf_discovery_metrics_from_dashboards
+}
+
+# Main
 setup
 
-# Get metrics custom metrics
+# Get custom metrics custom
 get_custom_metrics
 
-# Get Grafana dashboard and it's metrics data points
-gf_get_dashboards
-gf_extract_metrics_from_dashboards
+# Get Grafana dashboards and it's metrics data points
+get_grafana_metrics
 
 # force disk flush to ensure that all data gathered is accessible in the copy container
 sync
