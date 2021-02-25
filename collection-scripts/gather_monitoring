@@ -5,8 +5,12 @@ set -o nounset
 set -o errexit
 set -o pipefail
 
-BASE_COLLECTION_PATH="../must-gather"
-MONITORING_PATH="${BASE_COLLECTION_PATH}/monitoring"
+#Safeguards
+set -o nounset
+set -o errexit
+set -o pipefail
+
+function install_jq() {
 
 mkdir -p "${MONITORING_PATH}"
 
@@ -24,6 +28,9 @@ oc get\
   --raw=/api/v1/rules?type=alert 2>"${MONITORING_PATH}/alert.stderr" > "${MONITORING_PATH}/alerts.json"
 
 rm "${MONITORING_PATH}/ca-bundle.crt"
+
+# Get Prometheus Alerts
+get_alerts
 
 # force disk flush to ensure that all data gathered is accessible in the copy container
 sync
