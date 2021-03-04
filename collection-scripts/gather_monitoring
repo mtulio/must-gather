@@ -23,6 +23,55 @@
 #Safeguards
 set -o pipefail
 
+BASE_COLLECTION_PATH="../must-gather"
+MONITORING_PATH="${BASE_COLLECTION_PATH}/monitoring"
+PROM_PATH="${MONITORING_PATH}/prometheus"
+GF_PATH="${MONITORING_PATH}/grafana"
+test -d ${PROM_PATH} || mkdir -p ${PROM_PATH}
+test -d ${GF_PATH} || mkdir -p ${GF_PATH}
+
+PROM_HOST=$(oc get route prometheus-k8s -n openshift-monitoring -o jsonpath='{.spec.host}{"\n"}')
+PROM_URL="https://${PROM_HOST}"
+
+GF_HOST=$(oc get route grafana -n openshift-monitoring -o jsonpath='{.spec.host}{"\n"}')
+GF_URL="https://${GF_HOST}"
+
+CURL_OPTIONS="-k -s"
+JQ_PATH=$(which jq 2>/dev/null)
+
+OCP_TOKEN=$(oc whoami -t)
+MONIT_NS=openshift-monitoring
+MONIT_ENV=must-gather-env
+
+echo "INFO: Check custom metrics from ConfigMap ${MONIT_ENV} on project ${MONIT_NS}"
+oc get cm ${MONIT_ENV} -n ${MONIT_NS} -o jsonpath='{.data.env}' > ${MONITORING_PATH}/env 2> ${MONITORING_PATH}/env.err
+if [[ $? -eq 0 ]]; then
+    echo "INFO:Loading custom environments from ${MONITORING_PATH}/env"
+    source ${MONITORING_PATH}/env
+else
+    echo "INFO: Unable to load custom environments from ConfigMap, ignoring. Error saved on ${MONITORING_PATH}/env.err"
+fi
+
+_START=${GAHTER_MONIT_START_DATE:-"7 days ago"}
+DATE_START=$(date -d "${_START}" +%s)
+DATE_END=$(date +%s)
+# If the resolution is too low, the API will deny due to 11k limitation
+QUERY_STEP=${GAHTER_MONIT_QUERY_STEP:-"1m"}
+
+SA_TOKEN="$(oc sa get-token default)"
+
+# this is a CA bundle we need to verify the monitoring route, we will write it to disk so we can use it in the flag
+oc -n openshift-config-managed get cm default-ingress-cert -o jsonpath='{.data.ca-bundle\.crt}' > "${MONITORING_PATH}/ca-bundle.crt"
+
+echo "INFO: Metrics config: from=${DATE_START} to=${DATE_END} step=${QUERY_STEP}"
+echo "INFO: Prometheus endpoint URL: ${PROM_URL}"
+echo "INFO: Grafana  endpoint URL: ${GF_URL}"
+echo "INFO: Config Env GATHER_MONIT_GRAFANA_DISCOVERY: ${GATHER_MONIT_GRAFANA_DISCOVERY}"
+echo "INFO: Config Env GAHTER_MONIT_START_DATE: ${GAHTER_MONIT_START_DATE}"
+echo "INFO: Config Env GAHTER_MONIT_QUERY_STEP: ${GAHTER_MONIT_QUERY_STEP}"
+echo "INFO: Config Env GATHER_MONIT_CUSTOM_METRICS: ${GATHER_MONIT_CUSTOM_METRICS}"
+
+
 function install_jq() {
 
     if [[ -f ${JQ_PATH} ]]; then
@@ -117,58 +166,6 @@ function get_grafana_metrics() {
     gf_discovery_metrics_from_dashboards
 }
 
-
-# Init
-function init() {
-
-    BASE_COLLECTION_PATH="../must-gather"
-    MONITORING_PATH="${BASE_COLLECTION_PATH}/monitoring"
-    PROM_PATH="${MONITORING_PATH}/prometheus"
-    GF_PATH="${MONITORING_PATH}/grafana"
-    test -d ${PROM_PATH} || mkdir -p ${PROM_PATH}
-    test -d ${GF_PATH} || mkdir -p ${GF_PATH}
-
-    PROM_HOST=$(oc get route prometheus-k8s -n openshift-monitoring -o jsonpath='{.spec.host}{"\n"}')
-    PROM_URL="https://${PROM_HOST}"
-
-    GF_HOST=$(oc get route grafana -n openshift-monitoring -o jsonpath='{.spec.host}{"\n"}')
-    GF_URL="https://${GF_HOST}"
-
-    CURL_OPTIONS="-k -s"
-    JQ_PATH=$(which jq 2>/dev/null)
-
-    OCP_TOKEN=$(oc whoami -t)
-    MONIT_NS=openshift-monitoring
-    MONIT_ENV=must-gather-env
-
-    echo "INFO: Check custom metrics from ConfigMap ${MONIT_ENV} on project ${MONIT_NS}"
-    oc get cm ${MONIT_ENV} -n ${MONIT_NS} -o jsonpath='{.data.env}' > ${MONITORING_PATH}/env 2> ${MONITORING_PATH}/env.err
-    if [[ $? -eq 0 ]]; then
-        echo "INFO:Loading custom environments from ${MONITORING_PATH}/env"
-        source ${MONITORING_PATH}/env
-    else
-        echo "INFO: Unable to load custom environments from ConfigMap, ignoring. Error saved on ${MONITORING_PATH}/env.err"
-    fi
-
-    _START=${GAHTER_MONIT_START_DATE:-"7 days ago"}
-    DATE_START=$(date -d "${_START}" +%s)
-    DATE_END=$(date +%s)
-    # If the resolution is too low, the API will deny due to 11k limitation
-    QUERY_STEP=${GAHTER_MONIT_QUERY_STEP:-"1m"}
-
-    SA_TOKEN="$(oc sa get-token default)"
-
-    # this is a CA bundle we need to verify the monitoring route, we will write it to disk so we can use it in the flag
-    oc -n openshift-config-managed get cm default-ingress-cert -o jsonpath='{.data.ca-bundle\.crt}' > "${MONITORING_PATH}/ca-bundle.crt"
-
-    echo "INFO: Metrics config: from=${DATE_START} to=${DATE_END} step=${QUERY_STEP}"
-    echo "INFO: Prometheus endpoint URL: ${PROM_URL}"
-    echo "INFO: Grafana  endpoint URL: ${GF_URL}"
-    echo "INFO: Config Env GATHER_MONIT_GRAFANA_DISCOVERY: ${GATHER_MONIT_GRAFANA_DISCOVERY}"
-    echo "INFO: Config Env GAHTER_MONIT_START_DATE: ${GAHTER_MONIT_START_DATE}"
-    echo "INFO: Config Env GAHTER_MONIT_QUERY_STEP: ${GAHTER_MONIT_QUERY_STEP}"
-    echo "INFO: Config Env GATHER_MONIT_CUSTOM_METRICS: ${GATHER_MONIT_CUSTOM_METRICS}"
-}
 
 function get_alerts() {
 
