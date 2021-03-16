@@ -36,25 +36,27 @@ BASE_COLLECTION_PATH="../must-gather"
 MONITORING_PATH="${BASE_COLLECTION_PATH}/monitoring"
 PROM_PATH="${MONITORING_PATH}/prometheus"
 GF_PATH="${MONITORING_PATH}/grafana"
-test -d ${PROM_PATH} || mkdir -p ${PROM_PATH}
-test -d ${GF_PATH} || mkdir -p ${GF_PATH}
+test -d "${PROM_PATH}" || mkdir -p "${PROM_PATH}"
+test -d "${GF_PATH}" || mkdir -p "${GF_PATH}"
 
-PROM_HOST=$(oc -n ${MONIT_NS} get route prometheus-k8s -o jsonpath='{.spec.host}{"\n"}')
+PROM_HOST=$(oc -n "${MONIT_NS}" get route prometheus-k8s -o jsonpath='{.spec.host}{"\n"}')
 PROM_URL="https://${PROM_HOST}"
 
-GF_HOST=$(oc -n ${MONIT_NS} get route grafana  -o jsonpath='{.spec.host}{"\n"}')
+GF_HOST=$(oc -n "${MONIT_NS}" get route grafana  -o jsonpath='{.spec.host}{"\n"}')
 GF_URL="https://${GF_HOST}"
 
 OCP_TOKEN=$(oc whoami -t)
 
-JQ_PATH=$(which jq 2>/dev/null)
+JQ_PATH=$(command -v jq 2>/dev/null)
 CURL_OPTIONS="-sk"
 
 echo "INFO: Get custom metrics from ConfigMap ${MONIT_ENV} on project ${MONIT_NS}"
-oc -n ${MONIT_NS} get cm ${MONIT_ENV} -o jsonpath='{.data.env}' > ${MONITORING_PATH}/env 2> /dev/null
+oc -n "${MONIT_NS}" \
+    get cm "${MONIT_ENV}" \
+    -o jsonpath='{.data.env}' > "${MONITORING_PATH}/env" 2> /dev/null
 if [[ $? -eq 0 ]]; then
     echo "INFO: Loading custom environments variables from ${MONITORING_PATH}/env"
-    source ${MONITORING_PATH}/env
+    source "${MONITORING_PATH}/env"
 else
     echo "INFO: Unable to load custom environments from ConfigMap, ignoring."
 fi
@@ -82,25 +84,25 @@ function install_jq() {
 
     # install jq from binary (required to Dashnoard parser)
     export JQ_PATH=/usr/local/bin/jq
-    curl -s -o ${JQ_PATH} \
+    curl -s -o "${JQ_PATH}" \
       http://stedolan.github.io/jq/download/linux64/jq && \
-      chmod +x ${JQ_PATH}
+      chmod +x "${JQ_PATH}"
 }
 
 # Make a query (single metric) to Prometheus API /api/v1/query_range
 function prom_query_range() {
     QUERY=$1
-    METRIC_FILE=${2:-$(echo ${QUERY} |awk -F'\(' '{print$1}')}
+    METRIC_FILE=${2:-$(echo "${QUERY}" |awk -F'\(' '{print$1}')}
 
     # The metrics are ziped to decrease the datatransfer
-    curl ${CURL_OPTIONS} \
+    curl "${CURL_OPTIONS}" \
         -H "Authorization: Bearer ${OCP_TOKEN}" \
         -H 'Accept-encoding: gzip' \
         --data-urlencode "query=${QUERY}" \
         --data-urlencode "start=${DATE_START}" \
         --data-urlencode "end=${DATE_END}" \
         --data-urlencode "step=${QUERY_STEP}" \
-        $PROM_URL/api/v1/query_range > ${PROM_PATH}/metric-${METRIC_FILE}.json.gz
+        "${PROM_URL}/api/v1/query_range" > "${PROM_PATH}/metric-${METRIC_FILE}.json.gz"
 }
 
 # Gather metrics defined on environment GATHER_MONIT_CUSTOM_METRICS
@@ -111,9 +113,9 @@ function get_custom_metrics() {
     fi
 
     echo "INFO: Metrics will be collected from [$(date -d "@${DATE_START}")] to [$(date -d "@${DATE_END}")]"
-    for METRIC in $GATHER_MONIT_CUSTOM_METRICS; do
-        echo "INFO: Getting metric range: $METRIC"
-        prom_query_range "$METRIC" "$METRIC"
+    for METRIC in ${GATHER_MONIT_CUSTOM_METRICS}; do
+        echo "INFO: Getting metric range: ${METRIC}"
+        prom_query_range "${METRIC}" "${METRIC}"
     done
 }
 
@@ -133,11 +135,11 @@ function get_discovery_metrics() {
                 prom_query_range "${METRIC}" "${METRIC}" ;
             fi
         done
-    done < <( curl -sk ${CURL_OPTS} \
+    done < <( curl -sk "${CURL_OPTS}" \
         -H "Authorization: Bearer ${OCP_TOKEN}" \
         -H 'Accept-encoding: gzip' \
         -g "${PROM_URL}/api/v1/label/__name__/values" \
-        |gunzip \
+        | gunzip \
         | jq -r '.data[]'; \
     )
     echo "INFO: Discovery metrics by prefixes finished"
@@ -146,9 +148,9 @@ function get_discovery_metrics() {
 # List all Dashboards from default folder (id=1) on Grafana - where OCP store it's dashboards
 function gf_discovery_dashboards() {
     echo "INFO: Discovery Dashboards from default Folder"
-    curl ${CURL_OPTIONS} \
+    curl "${CURL_OPTIONS}" \
         -H "Authorization: Bearer ${OCP_TOKEN}" \
-        "${GF_URL}/api/search?folderIds=1" > ${GF_PATH}/dashboards.json
+        "${GF_URL}/api/search?folderIds=1" > "${GF_PATH}/dashboards.json"
 }
 
 # Parse and download all Dashboards discovered from Default folder,
@@ -161,31 +163,32 @@ function gf_discovery_metrics_from_dashboards() {
         | awk -F'db/' '{print$2}' \
         | awk '{print$1":"$2}' > ${GF_PATH}/dashboards.txt
 
-    while read DASHBOARD; do
-        NAME=$(echo $DASHBOARD |awk -F':' '{print$1}')
-        DUID=$(echo $DASHBOARD |awk -F':' '{print$2}')
+    while read -r DASHBOARD; do
+        NAME=$(echo "${DASHBOARD}" |awk -F':' '{print$1}')
+        DUID=$(echo "${DASHBOARD}" |awk -F':' '{print$2}')
 
         echo "INFO: Getting Dashboard ${NAME}"
-        curl ${CURL_OPTIONS} \
+        curl "${CURL_OPTIONS}" \
             -H "Authorization: Bearer ${OCP_TOKEN}" \
-            $GF_URL/api/dashboards/uid/${DUID} > ${GF_PATH}/dashboard_${NAME}.json
+            "${GF_URL}/api/dashboards/uid/${DUID}" > "${GF_PATH}/dashboard_${NAME}.json"
 
-        ${JQ_PATH} \
-            .dashboard.rows[].panels[].targets[].expr ${GF_PATH}/dashboard_${NAME}.json \
+        ${JQ_PATH} .dashboard.rows[].panels[].targets[].expr \
+            "${GF_PATH}/dashboard_${NAME}.json" \
             | egrep -o '\((\w+){\)*' \
-            | tr -d '({' > ${GF_PATH}/dashboard_${NAME}_metrics.txt
-    done < ${GF_PATH}/dashboards.txt
+            | tr -d '({' > "${GF_PATH}/dashboard_${NAME}_metrics.txt"
+    done < "${GF_PATH}/dashboards.txt"
 
     echo "INFO: Extracting metrics from dashboards"
-    sort -u ${GF_PATH}/dashboard_*_metrics.txt > ${GF_PATH}/dashboards_metrics.txt
-    while read METRIC; do
-        echo "INFO: Getting metric range: $METRIC"
-        prom_query_range "$METRIC" "$METRIC"
-    done < ${GF_PATH}/dashboards_metrics.txt
+    sort -u "${GF_PATH}/dashboard_*_metrics.txt" > "${GF_PATH}/dashboards_metrics.txt"
+    while read -r METRIC; do
+        echo "INFO: Getting metric range: ${METRIC}"
+        prom_query_range "${METRIC}" "${METRIC}"
+    done < "${GF_PATH}/dashboards_metrics.txt"
 }
 
 function get_grafana_metrics() {
-    ENABLE_DISCOVERY=${GATHER_MONIT_DISCOVERY_GRAFANA:-"yes"}
+
+    ENABLE_DISCOVERY=${GATHER_MONIT_DISCOVERY_GRAFANA:-${GATHER_MONIT_DISCOVERY_GRAFANA_DEFAULT}}
     if [[ "${ENABLE_DISCOVERY}" == "no" ]]; then
         echo "INFO: Ignoring metrics from Grafana dashboards. GATHER_MONIT_DISCOVERY_GRAFANA=no"
         return
