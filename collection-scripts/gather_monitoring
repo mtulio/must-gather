@@ -42,7 +42,7 @@ MONIT_NS="openshift-monitoring"
 MONIT_ENV="must-gather-env"
 
 JQ_PATH=$(command -v jq 2>/dev/null)
-CURL_OPTIONS="--fail -sk"
+CURL_CMD=(curl --fail -sk)
 
 BASE_COLLECTION_PATH="/must-gather"
 MONITORING_PATH="${BASE_COLLECTION_PATH}/monitoring"
@@ -105,7 +105,7 @@ function install_jq() {
 
     # install jq from binary (required to Dashnoard parser)
     export JQ_PATH=/usr/local/bin/jq
-    curl -s -o "${JQ_PATH}" \
+    "${CURL_CMD[@]}" -o "${JQ_PATH}" \
       http://stedolan.github.io/jq/download/linux64/jq && \
       chmod +x "${JQ_PATH}"
 }
@@ -116,7 +116,7 @@ function prom_query_range() {
     METRIC_FILE=${2:-$(echo "${QUERY}" |awk -F'\(' '{print$1}')}
 
     # The metrics are ziped to decrease the datatransfer
-    curl ${CURL_OPTIONS} \
+    "${CURL_CMD[@]}" \
         -H "Authorization: Bearer ${OCP_TOKEN}" \
         -H "Accept-encoding: gzip" \
         --data-urlencode "query=${QUERY}" \
@@ -148,7 +148,7 @@ function get_discovery_metrics() {
     fi
 
     echo "INFO: Discovery all metrics' name and save on ${MONITORING_PATH}/prometheus-metrics.txt"
-    curl ${CURL_OPTS} \
+    "${CURL_CMD[@]}" \
         -H "Authorization: Bearer ${OCP_TOKEN}" \
         -H "Accept-encoding: gzip" \
         -g "${PROM_URL}/api/v1/label/__name__/values" \
@@ -171,7 +171,7 @@ function get_discovery_metrics() {
 function gf_discovery_dashboards() {
 
     echo "INFO: Discovery Default Grafana Dashboard folder: ${GF_PATH}/dashboards.json"
-    curl ${CURL_OPTIONS} \
+    "${CURL_CMD[@]}" \
         -H "Authorization: Bearer ${OCP_TOKEN}" \
         "${GF_URL}/api/search?folderIds=1" > "${GF_PATH}/dashboards.json"
 }
@@ -193,7 +193,7 @@ function gf_discovery_metrics_from_dashboards() {
         DUID=$(echo "${DASHBOARD}" |awk -F':' '{print$2}')
 
         echo "INFO: Getting Dashboard ${NAME}"
-        curl ${CURL_OPTIONS} \
+        "${CURL_CMD[@]}" \
             -H "Authorization: Bearer ${OCP_TOKEN}" \
             "${GF_URL}/api/dashboards/uid/${DUID}" > "${GF_PATH}/dashboard_${NAME}.json"
 
