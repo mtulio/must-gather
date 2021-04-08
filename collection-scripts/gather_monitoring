@@ -106,7 +106,7 @@ function install_jq() {
     # install jq from binary (required to Dashnoard parser)
     export JQ_PATH=/usr/local/bin/jq
     "${CURL_CMD[@]}" -o "${JQ_PATH}" \
-      http://stedolan.github.io/jq/download/linux64/jq && \
+      https://github.com/stedolan/jq/releases/download/jq-1.5/jq-linux64 && \
       chmod +x "${JQ_PATH}"
 }
 
@@ -197,7 +197,7 @@ function gf_discovery_metrics_from_dashboards() {
             -H "Authorization: Bearer ${OCP_TOKEN}" \
             "${GF_URL}/api/dashboards/uid/${DUID}" > "${GF_PATH}/dashboard_${NAME}.json"
 
-        ${JQ_PATH} -r '.dashboard.rows[].panels[].targets[].expr | match("\\(([\\w:]+){.*").captures[].string' \
+        ${JQ_PATH} -r '.dashboard.rows[].panels[].targets[].expr |match("\\(([\\w:]+){.*").captures[].string' \
             "${GF_PATH}/dashboard_${NAME}.json" > "${GF_PATH}/dashboard_${NAME}_metrics.txt"
     done < "${GF_PATH}/dashboards.txt"
 
