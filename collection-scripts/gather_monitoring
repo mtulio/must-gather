@@ -203,7 +203,7 @@ function gf_discovery_metrics_from_dashboards() {
 
         # discovery metrics defined on variables that matchs: (metric_name|relabeled_metric:metric_name:oper)
         ${JQ_PATH} -r '.dashboard.rows[].panels[].targets[].expr |tostring |match(".*\\\"label_values\\(([a-z:_]+).*").captures[].string' \
-            "${GF_PATH}/dashboard_${NAME}.json" > "${GF_PATH}/dashboard_${NAME}_metrics.txt"
+            "${GF_PATH}/dashboard_${NAME}.json" >> "${GF_PATH}/dashboard_${NAME}_metrics.txt"
 
     done < "${GF_PATH}/dashboards.txt"
 
