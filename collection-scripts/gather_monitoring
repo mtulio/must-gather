@@ -198,7 +198,9 @@ function gf_discovery_dashboards() {
 function gf_discovery_metrics_from_dashboards() {
 
     install_jq
-    echo -ne "INFO: Extract discovered dashboards: ${GF_PATH}/dashboards.txt"
+    test -s ${GF_PATH}/dashboards.json && { echo "ERROR: Grafana Dashboards is empty: ${GF_PATH}/dashboards.json" ; return }
+
+    echo -ne "INFO: Extract discovered dashboards to ${GF_PATH}/dashboards.txt"
     ${JQ_PATH} \
         -r '.[] | .uri +":"+ .uid' ${GF_PATH}/dashboards.json \
         | awk -F'db/' '{print$2}' \
