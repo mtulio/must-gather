@@ -109,7 +109,7 @@ function install_jq() {
 
     # install jq from binary (required to Dashboard parser)
     export JQ_PATH=/usr/local/bin/jq
-    "${CURL_CMD[@]}" -o "${JQ_PATH}" \
+    "${CURL_CMD[@]}" -L -o "${JQ_PATH}" \
       https://github.com/stedolan/jq/releases/download/jq-1.5/jq-linux64 && \
       chmod +x "${JQ_PATH}"
 }
