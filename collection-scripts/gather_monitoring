@@ -41,7 +41,7 @@ GATHER_MONIT_DISCOVERY_GRAFANA_DEFAULT="no"
 MONIT_NS="openshift-monitoring"
 MONIT_ENV="must-gather-env"
 
-JQ_PATH=$(command -v jq 2>/dev/null)
+JQ_PATH=$(command -v jq 2>/dev/null |true)
 CURL_CMD=(curl --fail -sk)
 
 BASE_COLLECTION_PATH="/must-gather"
