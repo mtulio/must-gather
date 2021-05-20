@@ -10,7 +10,7 @@
 # - GAHTER_MONIT_END_DATE: ending human readable date string (date -d). Default: "now".
 # - GAHTER_MONIT_QUERY_STEP: metric resolution to get from Prometheus. Default: "1m".
 # - GATHER_MONIT_CUSTOM_METRICS: list of additional metrics name to be collected. Default: Undefined
-# - GATHER_MONIT_DISCOVERY_GRAFANA: manage Grafana metrics discovery, 'no' is disabled. Default: != 'no'
+# - GATHER_MONIT_DISCOVERY_GRAFANA: manage Grafana metrics discovery, 'no' is disabled. Default: 'no'
 # - GATHER_MONIT_DISCOVERY_PREFIXES: discovery metrics by prefixes. Default: ''
 # - GAHTER_MONIT_TOKEN: optional service account token to gather Prometheus and Grafana API. Default: Undefined
 #
@@ -74,7 +74,7 @@ SA_TOKEN="$(oc sa get-token default)"
 
 # Setting: Timestamp to Prometheus' query range
 _START_HUNAN=${GAHTER_MONIT_START_DATE:-${GAHTER_MONIT_START_DATE_DEFAULT}}
-DATE_START=$(date -d "${_START}" +%s)
+DATE_START=$(date -d "${_START_HUNAN}" +%s)
 _END_HUMAN=${GAHTER_MONIT_END_DATE:-${GAHTER_MONIT_END_DATE_DEFAULT}}
 DATE_END=$(date -d "${_END_HUMAN}" +%s)
 
