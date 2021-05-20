@@ -188,6 +188,9 @@ function gf_discovery_dashboards() {
     "${CURL_CMD[@]}" \
         -H "Authorization: Bearer ${SS_TOKEN}" \
         "${GF_URL}/api/search?folderIds=1" > "${GF_PATH}/dashboards.json"
+
+    test -s "${GF_PATH}/dashboards.json" && \
+        echo "ERROR: Grafana Dashboards is empty: ${GF_PATH}/dashboards.json"
 }
 
 # Parse and download all Dashboards discovered from Default folder,
