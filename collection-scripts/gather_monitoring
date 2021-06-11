@@ -37,8 +37,6 @@ declare -r GATHER_MONIT_QUERY_STEP_DEFAULT="1m"
 declare -r MONIT_NS="openshift-monitoring"
 declare -r MONIT_ENV="must-gather-env"
 
-declare -r CURL_CMD=(curl --fail -sk)
-
 declare -r BASE_COLLECTION_PATH="/must-gather"
 declare -r MONITORING_PATH="${BASE_COLLECTION_PATH}/monitoring"
 declare -r PROM_PATH="${MONITORING_PATH}/prometheus"
@@ -46,7 +44,6 @@ declare -r CA_BUNDLE="${MONITORING_PATH}/ca-bundle.crt"
 
 # Setting: Session token, overwriten by GATHER_MONIT_TOKEN
 declare -r SS_TOKEN="${GATHER_MONIT_TOKEN:-$(oc whoami -t)}"
-declare -r SA_TOKEN="$(oc sa get-token default)"
 declare -r PROM_HOST=$(oc -n "${MONIT_NS}" get route prometheus-k8s -o jsonpath='{.spec.host}{"\n"}')
 declare -r PROM_API="/api/v1"
 
@@ -74,7 +71,7 @@ function get_ca_bundle {
 
 function init {
 
-    test -d "${PROM_PATH}" || mkdir -p "${PROM_PATH}"
+    mkdir -p "${PROM_PATH}"
 
     get_ca_bundle
 
@@ -103,14 +100,14 @@ function init {
 }
 
 function cleanup {
-  rm "${CA_BUNDLE}"
+    rm "${CA_BUNDLE}"
 }
 
 function oc_get {
-  oc get \
-    --certificate-authority="${CA_BUNDLE}" \
-    --token="${SS_TOKEN}" \
-    "$@"
+    oc get \
+        --certificate-authority="${CA_BUNDLE}" \
+        --token="${SS_TOKEN}" \
+        "$@"
 }
 
 function prom_get_api {
