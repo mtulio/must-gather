@@ -52,7 +52,7 @@ declare -r PROM_HOST=$(oc -n "${MONIT_NS}" get route prometheus-k8s -o jsonpath=
 function get_env {
     oc -n "${MONIT_NS}" extract "cm/${MONIT_ENV}" \
         --keys=env \
-        --to="${MONITORING_PATH}/" 2> /dev/null || true
+        --to="${MONITORING_PATH}/" 1&>2 2> /dev/null || true
 
     echo "INFO: Get custom metrics from ConfigMap ${MONIT_ENV} on project ${MONIT_NS}"
     if [[ -s "${MONITORING_PATH}/env" ]]; then
@@ -122,7 +122,7 @@ function prom_get_query_metric {
 
     echo "INFO: prom_get_query_metric() QSTR: ${QSTR}"
     prom_get \
-        "query_range&${QSTR}" \
+        "query_range?${QSTR}" \
         | gzip > "${PROM_PATH}/metric-${METRIC}.json.gz"
 }
 
@@ -207,13 +207,13 @@ function get_alerts {
 init
 
 # Collect metrics by name
-get_custom_metrics
+get_custom_metrics || true
 
 # Collect metrics by prefix
-get_discovery_metrics
+get_discovery_metrics || true
 
 # Collect Prometheus Alerts
-get_alerts
+get_alerts || true
 
 # force disk flush to ensure that all data gathered is accessible in the copy container
 echo "INFO: Must-gather monitoring finished"
