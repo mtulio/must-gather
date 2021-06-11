@@ -48,6 +48,7 @@ declare -r CA_BUNDLE="${MONITORING_PATH}/ca-bundle.crt"
 declare -r SS_TOKEN="${GAHTER_MONIT_TOKEN:-$(oc whoami -t)}"
 declare -r SA_TOKEN="$(oc sa get-token default)"
 declare -r PROM_HOST=$(oc -n "${MONIT_NS}" get route prometheus-k8s -o jsonpath='{.spec.host}{"\n"}')
+declare -r PROM_API="/api/v1"
 
 function get_env {
     oc -n "${MONIT_NS}" extract "cm/${MONIT_ENV}" \
@@ -109,23 +110,21 @@ function oc_get {
 }
 
 function prom_get_api {
-    local API_URI="/api/v1/${1}"; shift
-    local DATA_PATH="${1}"; shift
+    local API_URI="${PROM_API}/${1}"; shift
 
-    echo "INFO: Collecting ${API_URI} endpoint from ${PROM_HOST}"
     oc_get \
         --server="https://${PROM_HOST}" \
-        --raw="${API_URI}" \
-          | gzip > "${DATA_PATH}"
+        --raw="${API_URI}"
 }
 
 function prom_get_query_range {
-    local QUERY="${1}"; shift
-    local QSTR="query=${QUERY}&start=${DATE_START}&end=${DATE_END}&step=${QUERY_STEP}"
+    local METRIC="${1}"; shift
+    local DATA_PATH="${PROM_PATH}/metric-${METRIC}.json.gz";
+    local QSTR="query=${METRIC}&start=${DATE_START}&end=${DATE_END}&step=${QUERY_STEP}"
+    local API_URI="query_range?${QSTR}"
 
-    prom_get_api \
-        "query_range?${QSTR}" \
-        "${PROM_PATH}/query-${QUERY}.json.gz"
+    echo "INFO: Collecting ${PROM_API}/${API_URI} endpoint from ${PROM_HOST}"
+    prom_get_api "${API_URI}" | gzip > "${DATA_PATH}"
 }
 
 #
@@ -155,7 +154,7 @@ function get_discovery_metrics {
     fi
 
     echo "INFO: Discovery all metrics' name and save on ${MONITORING_PATH}/prometheus-metrics.txt"
-    prom_get "label/__name__/values" \
+    prom_get_api "label/__name__/values" \
         | python2 -c \
             'import json,sys;v=[];[ v.append(d) for d in json.load(sys.stdin)["data"]];print("\n".join(v))' \
                 > "${MONITORING_PATH}/prometheus-metrics.txt"
