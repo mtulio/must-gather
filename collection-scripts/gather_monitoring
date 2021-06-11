@@ -10,20 +10,17 @@
 # - GAHTER_MONIT_END_DATE: ending human readable date string (date -d). Default: "now".
 # - GAHTER_MONIT_QUERY_STEP: metric resolution to get from Prometheus. Default: "1m".
 # - GATHER_MONIT_CUSTOM_METRICS: list of additional metrics name to be collected. Default: Undefined
-# - GATHER_MONIT_DISCOVERY_GRAFANA: manage Grafana metrics discovery, 'no' is disabled. Default: 'no'
 # - GATHER_MONIT_DISCOVERY_PREFIXES: discovery metrics by prefixes. Default: ''
 # - GAHTER_MONIT_TOKEN: optional service account token to gather Prometheus and Grafana API. Default: Undefined
 #
 # To create the ConfigMap:
 # $ echo -e 'GAHTER_MONIT_START_DATE="15 days ago"\nGAHTER_MONIT_QUERY_STEP="5m"' > env
 # $ echo -e 'GATHER_MONIT_CUSTOM_METRICS="up"' > env
-# $ echo -e 'GATHER_MONIT_DISCOVERY_GRAFANA="no"\nGATHER_MONIT_CUSTOM_METRICS="up"' > env
 # $ echo -e 'GATHER_MONIT_DISCOVERY_PREFIXES="apiserver_"' > env
 # $ oc create configmap must-gather-env -n openshift-monitoring --from-file=env=env
 #
 # References:
 # - Prometheus API: https://prometheus.io/docs/prometheus/latest/querying/api/
-# - Grafana API: https://grafana.com/docs/grafana/latest/http_api/dashboard/
 
 #Safeguards
 set -o pipefail
@@ -33,59 +30,58 @@ err_report() {
 }
 trap 'err_report $LINENO' ERR
 
-GAHTER_MONIT_START_DATE_DEFAULT="7 days ago"
-GAHTER_MONIT_END_DATE_DEFAULT="now"
-GAHTER_MONIT_QUERY_STEP_DEFAULT="1m"
-GATHER_MONIT_DISCOVERY_GRAFANA_DEFAULT="no"
+declare -r GAHTER_MONIT_START_DATE_DEFAULT="7 days ago"
+declare -r GAHTER_MONIT_END_DATE_DEFAULT="now"
+declare -r GAHTER_MONIT_QUERY_STEP_DEFAULT="1m"
 
-MONIT_NS="openshift-monitoring"
-MONIT_ENV="must-gather-env"
+declare -r MONIT_NS="openshift-monitoring"
+declare -r MONIT_ENV="must-gather-env"
 
-JQ_PATH=$(command -v jq 2>/dev/null |true)
-CURL_CMD=(curl --fail -sk)
+declare -r CURL_CMD=(curl --fail -sk)
 
-BASE_COLLECTION_PATH="/must-gather"
-MONITORING_PATH="${BASE_COLLECTION_PATH}/monitoring"
-PROM_PATH="${MONITORING_PATH}/prometheus"
-GF_PATH="${MONITORING_PATH}/grafana"
+declare -r BASE_COLLECTION_PATH="/must-gather"
+declare -r MONITORING_PATH="${BASE_COLLECTION_PATH}/monitoring"
+declare -r PROM_PATH="${MONITORING_PATH}/prometheus"
+declare -r CA_BUNDLE="${MONITORING_PATH}/ca-bundle.crt"
 
 test -d "${PROM_PATH}" || mkdir -p "${PROM_PATH}"
-test -d "${GF_PATH}" || mkdir -p "${GF_PATH}"
 
 echo "INFO: Get custom metrics from ConfigMap ${MONIT_ENV} on project ${MONIT_NS}"
-oc -n "${MONIT_NS}" \
-    get cm "${MONIT_ENV}" \
-    -o jsonpath='{.data.env}' > "${MONITORING_PATH}/env" 2> /dev/null
-if [[ $? -eq 0 ]]; then
+function get_env {
+    oc -n "${MONIT_NS}" \
+        get cm "${MONIT_ENV}" \
+        -o jsonpath='{.data.env}' \
+            > "${MONITORING_PATH}/env" \
+            2> /dev/null
+}
+get_env || true
+if [[ -f "${MONITORING_PATH}/env" ]]; then
     echo "INFO: Loading custom environments variables from ${MONITORING_PATH}/env"
     source "${MONITORING_PATH}/env"
 else
     echo "INFO: Unable to load custom environments from ConfigMap, ignoring."
 fi
 
-# this is a CA bundle we need to verify the routes
+# this is a CA bundle we need to verify the monitoring route,
+# we will write it to disk so we can use it in the flag
 oc -n openshift-config-managed \
     get cm default-ingress-cert \
-    -o jsonpath='{.data.ca-bundle\.crt}' > "${MONITORING_PATH}/ca-bundle.crt"
+    -o jsonpath='{.data.ca-bundle\.crt}' > "${CA_BUNDLE}"
 
 # Setting: Session token, overwriten by GAHTER_MONIT_TOKEN
-SS_TOKEN="${GAHTER_MONIT_TOKEN:-$(oc whoami -t)}"
-SA_TOKEN="$(oc sa get-token default)"
+declare -r SS_TOKEN="${GAHTER_MONIT_TOKEN:-$(oc whoami -t)}"
+declare -r SA_TOKEN="$(oc sa get-token default)"
 
 # Setting: Timestamp to Prometheus' query range
-_START_HUNAN=${GAHTER_MONIT_START_DATE:-${GAHTER_MONIT_START_DATE_DEFAULT}}
-DATE_START=$(date -d "${_START_HUNAN}" +%s)
-_END_HUMAN=${GAHTER_MONIT_END_DATE:-${GAHTER_MONIT_END_DATE_DEFAULT}}
-DATE_END=$(date -d "${_END_HUMAN}" +%s)
+declare -r _START_HUNAN=${GAHTER_MONIT_START_DATE:-${GAHTER_MONIT_START_DATE_DEFAULT}}
+declare -r DATE_START=$(date -d "${_START_HUNAN}" +%s)
+declare -r _END_HUMAN=${GAHTER_MONIT_END_DATE:-${GAHTER_MONIT_END_DATE_DEFAULT}}
+declare -r DATE_END=$(date -d "${_END_HUMAN}" +%s)
 
 # Setting: Metric resolution. Low resolution in longer range could be limited to 11k datapoints
-QUERY_STEP=${GAHTER_MONIT_QUERY_STEP:-${GAHTER_MONIT_QUERY_STEP_DEFAULT}}
+declare -r QUERY_STEP=${GAHTER_MONIT_QUERY_STEP:-${GAHTER_MONIT_QUERY_STEP_DEFAULT}}
 
-PROM_HOST=$(oc -n "${MONIT_NS}" get route prometheus-k8s -o jsonpath='{.spec.host}{"\n"}')
-PROM_URL="https://${PROM_HOST}"
-
-GF_HOST=$(oc -n "${MONIT_NS}" get route grafana -o jsonpath='{.spec.host}{"\n"}')
-GF_URL="https://${GF_HOST}"
+declare -r PROM_HOST=$(oc -n "${MONIT_NS}" get route prometheus-k8s -o jsonpath='{.spec.host}{"\n"}')
 
 echo "INFO: Metrics config time range from=${DATE_START} to=${DATE_END} step=${QUERY_STEP}"
 echo "INFO: Config Env GAHTER_MONIT_START_DATE: ${GAHTER_MONIT_START_DATE}"
@@ -93,25 +89,34 @@ echo "INFO: Config Env GAHTER_MONIT_END_DATE: ${GAHTER_MONIT_END_DATE}"
 echo "INFO: Config Env GAHTER_MONIT_QUERY_STEP: ${GAHTER_MONIT_QUERY_STEP}"
 echo "INFO: Config Env GATHER_MONIT_CUSTOM_METRICS: ${GATHER_MONIT_CUSTOM_METRICS}"
 echo "INFO: Config Env GATHER_MONIT_DISCOVERY_PREFIXES: ${GATHER_MONIT_DISCOVERY_PREFIXES}"
-echo "INFO: Config Env GATHER_MONIT_DISCOVERY_GRAFANA: ${GATHER_MONIT_DISCOVERY_GRAFANA}"
 echo "INFO: Prometheus endpoint URL: ${PROM_URL}"
-echo "INFO: Grafana endpoint URL: ${GF_URL}"
 
-# Install jq binary.
-# TODO:
-# - embeed it on base image (~2MiB)
-# - adapt it to disconnected environments
-function install_jq() {
 
-    if [[ -f ${JQ_PATH} ]]; then
-        return
-    fi
+function cleanup {
+  rm "${CA_BUNDLE}"
+}
 
-    # install jq from binary (required to Dashboard parser)
-    export JQ_PATH=/usr/local/bin/jq
-    "${CURL_CMD[@]}" -L -o "${JQ_PATH}" \
-      https://github.com/stedolan/jq/releases/download/jq-1.5/jq-linux64 && \
-      chmod +x "${JQ_PATH}"
+function oc_get {
+  oc get \
+    --certificate-authority="${CA_BUNDLE}" \
+    --token="${SS_TOKEN}" \
+    "$@"
+}
+
+function prom_get {
+
+    oc_get \
+        --server="https://${PROM_HOST}" \
+        --raw="/api/v1/${1}" \
+
+}
+
+function prom_get_query_range {
+    local QSTR="&query=${1}&start=${DATE_START}&end=${DATE_END}&step=${QUERY_STEP}"
+
+    prom_get \
+        "query_range${QSTR}" \
+        | gzip > "${PROM_PATH}/metric-${METRIC_FILE}.json.gz"
 }
 
 # Query range to Prometheus API /api/v1/query_range
@@ -127,7 +132,7 @@ function prom_query_range() {
         --data-urlencode "start=${DATE_START}" \
         --data-urlencode "end=${DATE_END}" \
         --data-urlencode "step=${QUERY_STEP}" \
-        "${PROM_URL}/api/v1/query_range" > "${PROM_PATH}/metric-${METRIC_FILE}.json.gz"
+        "https://${PROM_HOST}/api/v1/query_range" > "${PROM_PATH}/metric-${METRIC_FILE}.json.gz"
 }
 
 #
@@ -158,12 +163,19 @@ function get_discovery_metrics() {
     fi
 
     echo "INFO: Discovery all metrics' name and save on ${MONITORING_PATH}/prometheus-metrics.txt"
-    "${CURL_CMD[@]}" \
-        -H "Authorization: Bearer ${SS_TOKEN}" \
-        -H "Accept-encoding: gzip" \
-        -g "${PROM_URL}/api/v1/label/__name__/values" \
-        | gunzip \
-        | jq -r '.data[]' > "${MONITORING_PATH}/prometheus-metrics.txt"
+    # "${CURL_CMD[@]}" \
+    #     -H "Authorization: Bearer ${SS_TOKEN}" \
+    #     -H "Accept-encoding: gzip" \
+    #     -g "${PROM_URL}/api/v1/label/__name__/values" \
+    #     | gunzip \
+    #     | python2 -c \
+    #         'import json,sys;v=[];[ v.append(d) for d in json.load(sys.stdin)["data"]];print("\n".join(v))' \
+    #         > "${MONITORING_PATH}/prometheus-metrics.txt"
+
+    prom_get "label/__name__/values" \
+        | python2 -c \
+            'import json,sys;v=[];[ v.append(d) for d in json.load(sys.stdin)["data"]];print("\n".join(v))' \
+                > "${MONITORING_PATH}/prometheus-metrics.txt"
 
     echo "INFO: Starting discovery metrics by prefixes..."
     # TODO: fix it O(m*n) ;(
@@ -178,78 +190,6 @@ function get_discovery_metrics() {
 }
 
 #
-# Grafana functions - discovery metrics from current Dashboards
-# Env var: GATHER_MONIT_DISCOVERY_GRAFANA=yes
-#
-# List all Dashboards from default folder (id=1) on Grafana - where OCP store it's dashboards
-function gf_discovery_dashboards() {
-
-    echo "INFO: Discovery Default Grafana Dashboard folder: ${GF_PATH}/dashboards.json"
-    "${CURL_CMD[@]}" \
-        -H "Authorization: Bearer ${SS_TOKEN}" \
-        "${GF_URL}/api/search?folderIds=1" > "${GF_PATH}/dashboards.json"
-}
-
-# Parse and download all Dashboards discovered from Default folder,
-# then collect it's metrics from Prometheus API.
-function gf_discovery_metrics_from_dashboards() {
-
-    install_jq
-    if [[ -s ${GF_PATH}/dashboards.json ]]; then
-        echo "ERROR: Grafana Dashboards is empty: ${GF_PATH}/dashboards.json" ;
-        return;
-    fi
-
-    echo -ne "INFO: Extract discovered dashboards to ${GF_PATH}/dashboards.txt"
-    ${JQ_PATH} \
-        -r '.[] | .uri +":"+ .uid' ${GF_PATH}/dashboards.json \
-        | awk -F'db/' '{print$2}' \
-        | awk '{print$1":"$2}' > ${GF_PATH}/dashboards.txt
-    echo " [$(wc -l ${GF_PATH}/dashboards.txt |awk '{print$1}')]"
-
-    while read -r DASHBOARD; do
-        NAME=$(echo "${DASHBOARD}" |awk -F':' '{print$1}')
-        DUID=$(echo "${DASHBOARD}" |awk -F':' '{print$2}')
-
-        echo "INFO: Getting Dashboard ${NAME}"
-        "${CURL_CMD[@]}" \
-            -H "Authorization: Bearer ${SS_TOKEN}" \
-            "${GF_URL}/api/dashboards/uid/${DUID}" > "${GF_PATH}/dashboard_${NAME}.json"
-
-        # discovery metrics defined on panels that matchs: (metric_name|relabeled_metric:metric_name:oper)
-        ${JQ_PATH} -r '.dashboard.rows[].panels[].targets[].expr |match("\\(([\\w:]+){.*").captures[].string' \
-            "${GF_PATH}/dashboard_${NAME}.json" > "${GF_PATH}/dashboard_${NAME}_metrics.txt"
-
-        # discovery metrics defined on variables that matchs: (metric_name|relabeled_metric:metric_name:oper)
-        ${JQ_PATH} -r '.dashboard.rows[].panels[].targets[].expr |tostring |match(".*\\\"label_values\\(([a-z:_]+).*").captures[].string' \
-            "${GF_PATH}/dashboard_${NAME}.json" >> "${GF_PATH}/dashboard_${NAME}_metrics.txt"
-
-    done < "${GF_PATH}/dashboards.txt"
-
-    echo -ne "INFO: Grouping all dashboards' metrics to ${GF_PATH}/dashboards_metrics.txt"
-    sort -u ${GF_PATH}/dashboard_*_metrics.txt > "${GF_PATH}/dashboards_metrics.txt"
-    echo " [$(wc -l ${GF_PATH}/dashboards_metrics.txt |awk '{print$1}')]"
-
-    echo "INFO: Gathering discovered metrics' data points"
-    while read -r METRIC; do
-        echo "INFO: Getting metric range: ${METRIC}"
-        prom_query_range "${METRIC}" "${METRIC}"
-    done < "${GF_PATH}/dashboards_metrics.txt"
-}
-
-function get_grafana_metrics() {
-
-    ENABLE_DISCOVERY=${GATHER_MONIT_DISCOVERY_GRAFANA:-${GATHER_MONIT_DISCOVERY_GRAFANA_DEFAULT}}
-    if [[ "${ENABLE_DISCOVERY}" == "no" ]]; then
-        return
-    fi
-
-    echo "INFO: Get metrics from Grafana dashboards"
-    gf_discovery_dashboards
-    gf_discovery_metrics_from_dashboards
-}
-
-#
 # Gather current alerts.
 #
 function get_alerts() {
@@ -258,13 +198,11 @@ function get_alerts() {
     set -o errexit
 
     # using oc get --raw because we directly control it and have standardized debugging on it
-    oc get \
-        --server="${PROM_URL}" \
-        --token="${SA_TOKEN}" \
-        --certificate-authority="${MONITORING_PATH}/ca-bundle.crt" \
-        --raw=/api/v1/rules?type=alert 2>"${MONITORING_PATH}/alert.stderr" > "${MONITORING_PATH}/alerts.json"
-
-    rm "${MONITORING_PATH}/ca-bundle.crt"
+    oc_get \
+        --server="https://${PROM_HOST}" \
+        -raw=/api/v1/rules?type=alert \
+            2> "${MONITORING_PATH}/alert.err" \
+            >  "${MONITORING_PATH}/alerts.json"
 }
 
 #> Main
@@ -274,11 +212,10 @@ get_custom_metrics
 # Collect metrics by prefix
 get_discovery_metrics
 
-# Collect Grafana dashboards and metrics defined on instruments
-get_grafana_metrics
-
 # Collect Prometheus Alerts
 get_alerts
+
+cleanup
 
 # force disk flush to ensure that all data gathered is accessible in the copy container
 echo "INFO: Must-gather monitoring finished"
