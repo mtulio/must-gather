@@ -207,13 +207,13 @@ function get_alerts {
 init
 
 # Collect metrics by name
-get_custom_metrics || true
+get_custom_metrics
 
 # Collect metrics by prefix
-get_discovery_metrics || true
+get_discovery_metrics
 
 # Collect Prometheus Alerts
-get_alerts || true
+get_alerts
 
 # force disk flush to ensure that all data gathered is accessible in the copy container
 echo "INFO: Must-gather monitoring finished"
