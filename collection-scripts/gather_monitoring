@@ -81,12 +81,12 @@ function init {
 
     # Setting: Timestamp to Prometheus' query range
     declare -r _START_HUNAN=${GAHTER_MONIT_START_DATE:-${GAHTER_MONIT_START_DATE_DEFAULT}}
-    declare -r DATE_START=$(date -d "${_START_HUNAN}" +%s)
+    declare -g DATE_START=$(date -d "${_START_HUNAN}" +%s)
     declare -r _END_HUMAN=${GAHTER_MONIT_END_DATE:-${GAHTER_MONIT_END_DATE_DEFAULT}}
-    declare -r DATE_END=$(date -d "${_END_HUMAN}" +%s)
+    declare -g DATE_END=$(date -d "${_END_HUMAN}" +%s)
 
     # Setting: Metric resolution. Low resolution in longer range could be limited to 11k datapoints
-    declare -r QUERY_STEP=${GAHTER_MONIT_QUERY_STEP:-${GAHTER_MONIT_QUERY_STEP_DEFAULT}}
+    declare -g QUERY_STEP=${GAHTER_MONIT_QUERY_STEP:-${GAHTER_MONIT_QUERY_STEP_DEFAULT}}
 
     echo "INFO: Metrics config time range from=${DATE_START} to=${DATE_END} step=${QUERY_STEP}"
     echo "INFO: Config Env GAHTER_MONIT_START_DATE: ${GAHTER_MONIT_START_DATE}"
@@ -118,11 +118,11 @@ function prom_get {
 
 function prom_get_query_metric {
     local METRIC="${1}"; shift
-    local QSTR="&query=${QUERY}&start=${DATE_START}&end=${DATE_END}&step=${QUERY_STEP}"
+    local QSTR="query=${METRIC}&start=${DATE_START}&end=${DATE_END}&step=${QUERY_STEP}"
 
-    echo "INFO: prom_get_query_metric() QSTR=${QSTR}"
+    echo "INFO: prom_get_query_metric() QSTR: ${QSTR}"
     prom_get \
-        "query_range${QSTR}" \
+        "query_range&${QSTR}" \
         | gzip > "${PROM_PATH}/metric-${METRIC}.json.gz"
 }
 
