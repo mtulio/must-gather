@@ -44,53 +44,58 @@ declare -r MONITORING_PATH="${BASE_COLLECTION_PATH}/monitoring"
 declare -r PROM_PATH="${MONITORING_PATH}/prometheus"
 declare -r CA_BUNDLE="${MONITORING_PATH}/ca-bundle.crt"
 
-test -d "${PROM_PATH}" || mkdir -p "${PROM_PATH}"
-
-echo "INFO: Get custom metrics from ConfigMap ${MONIT_ENV} on project ${MONIT_NS}"
-function get_env {
-    oc -n "${MONIT_NS}" \
-        get cm "${MONIT_ENV}" \
-        -o jsonpath='{.data.env}' \
-            > "${MONITORING_PATH}/env" \
-            2> /dev/null
-}
-get_env || true
-if [[ -f "${MONITORING_PATH}/env" ]]; then
-    echo "INFO: Loading custom environments variables from ${MONITORING_PATH}/env"
-    source "${MONITORING_PATH}/env"
-else
-    echo "INFO: Unable to load custom environments from ConfigMap, ignoring."
-fi
-
-# this is a CA bundle we need to verify the monitoring route,
-# we will write it to disk so we can use it in the flag
-oc -n openshift-config-managed \
-    get cm default-ingress-cert \
-    -o jsonpath='{.data.ca-bundle\.crt}' > "${CA_BUNDLE}"
-
 # Setting: Session token, overwriten by GAHTER_MONIT_TOKEN
 declare -r SS_TOKEN="${GAHTER_MONIT_TOKEN:-$(oc whoami -t)}"
 declare -r SA_TOKEN="$(oc sa get-token default)"
-
-# Setting: Timestamp to Prometheus' query range
-declare -r _START_HUNAN=${GAHTER_MONIT_START_DATE:-${GAHTER_MONIT_START_DATE_DEFAULT}}
-declare -r DATE_START=$(date -d "${_START_HUNAN}" +%s)
-declare -r _END_HUMAN=${GAHTER_MONIT_END_DATE:-${GAHTER_MONIT_END_DATE_DEFAULT}}
-declare -r DATE_END=$(date -d "${_END_HUMAN}" +%s)
-
-# Setting: Metric resolution. Low resolution in longer range could be limited to 11k datapoints
-declare -r QUERY_STEP=${GAHTER_MONIT_QUERY_STEP:-${GAHTER_MONIT_QUERY_STEP_DEFAULT}}
-
 declare -r PROM_HOST=$(oc -n "${MONIT_NS}" get route prometheus-k8s -o jsonpath='{.spec.host}{"\n"}')
 
-echo "INFO: Metrics config time range from=${DATE_START} to=${DATE_END} step=${QUERY_STEP}"
-echo "INFO: Config Env GAHTER_MONIT_START_DATE: ${GAHTER_MONIT_START_DATE}"
-echo "INFO: Config Env GAHTER_MONIT_END_DATE: ${GAHTER_MONIT_END_DATE}"
-echo "INFO: Config Env GAHTER_MONIT_QUERY_STEP: ${GAHTER_MONIT_QUERY_STEP}"
-echo "INFO: Config Env GATHER_MONIT_CUSTOM_METRICS: ${GATHER_MONIT_CUSTOM_METRICS}"
-echo "INFO: Config Env GATHER_MONIT_DISCOVERY_PREFIXES: ${GATHER_MONIT_DISCOVERY_PREFIXES}"
-echo "INFO: Prometheus Host: ${PROM_HOST}"
+function get_env {
+    oc -n "${MONIT_NS}" extract "cm/${MONIT_ENV}" \
+        --keys=env \
+        --to="${MONITORING_PATH}/" 2> /dev/null || true
 
+    echo "INFO: Get custom metrics from ConfigMap ${MONIT_ENV} on project ${MONIT_NS}"
+    if [[ -s "${MONITORING_PATH}/env" ]]; then
+        echo "INFO: Loading custom environments variables from ${MONITORING_PATH}/env"
+        source "${MONITORING_PATH}/env"
+    else
+        echo "INFO: Unable to load custom environments from ConfigMap, ignoring."
+    fi
+}
+
+# this is a CA bundle we need to verify the monitoring route,
+# we will write it to disk so we can use it in the flag
+function get_ca_bundle {
+    oc -n openshift-config-managed \
+        get cm default-ingress-cert \
+        -o jsonpath='{.data.ca-bundle\.crt}' > "${CA_BUNDLE}"
+}
+
+function init {
+
+    test -d "${PROM_PATH}" || mkdir -p "${PROM_PATH}"
+
+    get_ca_bundle
+
+    get_env
+
+    # Setting: Timestamp to Prometheus' query range
+    declare -r _START_HUNAN=${GAHTER_MONIT_START_DATE:-${GAHTER_MONIT_START_DATE_DEFAULT}}
+    declare -r DATE_START=$(date -d "${_START_HUNAN}" +%s)
+    declare -r _END_HUMAN=${GAHTER_MONIT_END_DATE:-${GAHTER_MONIT_END_DATE_DEFAULT}}
+    declare -r DATE_END=$(date -d "${_END_HUMAN}" +%s)
+
+    # Setting: Metric resolution. Low resolution in longer range could be limited to 11k datapoints
+    declare -r QUERY_STEP=${GAHTER_MONIT_QUERY_STEP:-${GAHTER_MONIT_QUERY_STEP_DEFAULT}}
+
+    echo "INFO: Metrics config time range from=${DATE_START} to=${DATE_END} step=${QUERY_STEP}"
+    echo "INFO: Config Env GAHTER_MONIT_START_DATE: ${GAHTER_MONIT_START_DATE}"
+    echo "INFO: Config Env GAHTER_MONIT_END_DATE: ${GAHTER_MONIT_END_DATE}"
+    echo "INFO: Config Env GAHTER_MONIT_QUERY_STEP: ${GAHTER_MONIT_QUERY_STEP}"
+    echo "INFO: Config Env GATHER_MONIT_CUSTOM_METRICS: ${GATHER_MONIT_CUSTOM_METRICS}"
+    echo "INFO: Config Env GATHER_MONIT_DISCOVERY_PREFIXES: ${GATHER_MONIT_DISCOVERY_PREFIXES}"
+    echo "INFO: Prometheus Host: ${PROM_HOST}"
+}
 
 function cleanup {
   rm "${CA_BUNDLE}"
@@ -120,7 +125,7 @@ function prom_get_query_range {
 }
 
 # Query range to Prometheus API /api/v1/query_range
-function prom_query_range() {
+function prom_query_range {
     QUERY=$1
     METRIC_FILE=${2:-$(echo "${QUERY}" |awk -F'\(' '{print$1}')}
 
@@ -139,7 +144,7 @@ function prom_query_range() {
 # Gather specific metrics by name.
 # Env var: GATHER_MONIT_CUSTOM_METRICS
 #
-function get_custom_metrics() {
+function get_custom_metrics {
 
     if [[ -z "${GATHER_MONIT_CUSTOM_METRICS}" ]]; then
         return
@@ -156,7 +161,7 @@ function get_custom_metrics() {
 # Discovery and gather metrics by prefixes.
 # Env var: GATHER_MONIT_DISCOVERY_PREFIXES
 #
-function get_discovery_metrics() {
+function get_discovery_metrics {
 
     if [[ -z "${GATHER_MONIT_DISCOVERY_PREFIXES}" ]]; then
         return
@@ -183,7 +188,7 @@ function get_discovery_metrics() {
 #
 # Gather current alerts.
 #
-function get_alerts() {
+function get_alerts {
 
     set -o nounset
     set -o errexit
@@ -197,6 +202,8 @@ function get_alerts() {
 }
 
 #> Main
+init
+
 # Collect metrics by name
 get_custom_metrics
 
@@ -206,8 +213,7 @@ get_discovery_metrics
 # Collect Prometheus Alerts
 get_alerts
 
-cleanup
-
 # force disk flush to ensure that all data gathered is accessible in the copy container
 echo "INFO: Must-gather monitoring finished"
+cleanup
 sync
