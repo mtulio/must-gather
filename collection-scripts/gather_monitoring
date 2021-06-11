@@ -89,13 +89,17 @@ function init {
     # Setting: Metric resolution. Low resolution in longer range could be limited to 11k datapoints
     declare -g QUERY_STEP=${GAHTER_MONIT_QUERY_STEP:-${GAHTER_MONIT_QUERY_STEP_DEFAULT}}
 
+    declare -g PROM_API_QSTR="start=${DATE_START}&end=${DATE_END}&step=${QUERY_STEP}"
+
     echo "INFO: Metrics config time range from=${DATE_START} to=${DATE_END} step=${QUERY_STEP}"
+    echo "INFO: Metrics human  time range from=[$(date -d "@${DATE_START}")] to [$(date -d "@${DATE_END}")]"
     echo "INFO: Config Env GAHTER_MONIT_START_DATE: ${GAHTER_MONIT_START_DATE}"
     echo "INFO: Config Env GAHTER_MONIT_END_DATE: ${GAHTER_MONIT_END_DATE}"
     echo "INFO: Config Env GAHTER_MONIT_QUERY_STEP: ${GAHTER_MONIT_QUERY_STEP}"
     echo "INFO: Config Env GATHER_MONIT_CUSTOM_METRICS: ${GATHER_MONIT_CUSTOM_METRICS}"
     echo "INFO: Config Env GATHER_MONIT_DISCOVERY_PREFIXES: ${GATHER_MONIT_DISCOVERY_PREFIXES}"
-    echo "INFO: Prometheus Host: ${PROM_HOST}"
+    echo "INFO: Prometheus endpoint: https://${PROM_HOST}"
+    echo "INFO: Prometheus base query: ${PROM_API}/<uri>?query=<metric>&${PROM_API_QSTR}"
 }
 
 function cleanup {
@@ -119,12 +123,12 @@ function prom_get_api {
 
 function prom_get_query_range {
     local METRIC="${1}"; shift
-    local DATA_PATH="${PROM_PATH}/metric-${METRIC}.json.gz";
-    local QSTR="query=${METRIC}&start=${DATE_START}&end=${DATE_END}&step=${QUERY_STEP}"
-    local API_URI="query_range?${QSTR}"
+    local FILE_OK="${PROM_PATH}/metric-${METRIC}.json.gz";
+    local FILE_ERR="${PROM_PATH}/metric-${METRIC}.stderr";
+    local API_URI="query_range?query=${METRIC}&${PROM_API_QSTR}"
 
-    echo "INFO: Collecting ${PROM_API}/${API_URI} endpoint from ${PROM_HOST}"
-    prom_get_api "${API_URI}" | gzip > "${DATA_PATH}"
+    echo "INFO: Collecting metric /query_range?query=${METRIC}"
+    prom_get_api "${API_URI}" 2> "${FILE_ERR}" | gzip > "${FILE_OK}"
 }
 
 #
@@ -136,8 +140,8 @@ function get_custom_metrics {
     if [[ -z "${GATHER_MONIT_CUSTOM_METRICS}" ]]; then
         return
     fi
+    echo "INFO: Collecting custom metrics..."
 
-    echo "INFO: Metrics will be collected from [$(date -d "@${DATE_START}")] to [$(date -d "@${DATE_END}")]"
     for METRIC in ${GATHER_MONIT_CUSTOM_METRICS}; do
         prom_get_query_range "${METRIC}"
     done
@@ -152,14 +156,14 @@ function get_discovery_metrics {
     if [[ -z "${GATHER_MONIT_DISCOVERY_PREFIXES}" ]]; then
         return
     fi
+    echo "INFO: Collecting metrics by prefixes..."
 
-    echo "INFO: Discovery all metrics' name and save on ${MONITORING_PATH}/prometheus-metrics.txt"
+    #echo "INFO: Discovery all metrics' name and save on ${MONITORING_PATH}/prometheus-metrics.txt"
     prom_get_api "label/__name__/values" \
         | python2 -c \
             'import json,sys;v=[];[ v.append(d) for d in json.load(sys.stdin)["data"]];print("\n".join(v))' \
                 > "${MONITORING_PATH}/prometheus-metrics.txt"
 
-    echo "INFO: Starting discovery metrics by prefixes..."
     # TODO: fix it O(m*n) ;(
     while read METRIC; do
         for PREFIX in ${GATHER_MONIT_DISCOVERY_PREFIXES}; do
