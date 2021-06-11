@@ -116,29 +116,31 @@ function prom_get {
 
 }
 
-function prom_get_query_range {
-    local QSTR="&query=${1}&start=${DATE_START}&end=${DATE_END}&step=${QUERY_STEP}"
-    echo "INFO: QSTR=${QSTR}"
+function prom_get_query_metric {
+    local METRIC="${1}"; shift
+    local QSTR="&query=${QUERY}&start=${DATE_START}&end=${DATE_END}&step=${QUERY_STEP}"
+
+    echo "INFO: prom_get_query_metric() QSTR=${QSTR}"
     prom_get \
         "query_range${QSTR}" \
-        | gzip > "${PROM_PATH}/metric-${METRIC_FILE}.json.gz"
+        | gzip > "${PROM_PATH}/metric-${METRIC}.json.gz"
 }
 
-# Query range to Prometheus API /api/v1/query_range
-function prom_query_range {
-    QUERY=$1
-    METRIC_FILE=${2:-$(echo "${QUERY}" |awk -F'\(' '{print$1}')}
+# # Query range to Prometheus API /api/v1/query_range
+# function prom_query_range {
+#     QUERY=$1
+#     METRIC_FILE=${2:-$(echo "${QUERY}" |awk -F'\(' '{print$1}')}
 
-    # The metrics are ziped to decrease the datatransfer
-    "${CURL_CMD[@]}" \
-        -H "Authorization: Bearer ${SS_TOKEN}" \
-        -H "Accept-encoding: gzip" \
-        --data-urlencode "query=${QUERY}" \
-        --data-urlencode "start=${DATE_START}" \
-        --data-urlencode "end=${DATE_END}" \
-        --data-urlencode "step=${QUERY_STEP}" \
-        "https://${PROM_HOST}/api/v1/query_range" > "${PROM_PATH}/metric-${METRIC_FILE}.json.gz"
-}
+#     # The metrics are ziped to decrease the datatransfer
+#     "${CURL_CMD[@]}" \
+#         -H "Authorization: Bearer ${SS_TOKEN}" \
+#         -H "Accept-encoding: gzip" \
+#         --data-urlencode "query=${QUERY}" \
+#         --data-urlencode "start=${DATE_START}" \
+#         --data-urlencode "end=${DATE_END}" \
+#         --data-urlencode "step=${QUERY_STEP}" \
+#         "https://${PROM_HOST}/api/v1/query_range" > "${PROM_PATH}/metric-${METRIC_FILE}.json.gz"
+# }
 
 #
 # Gather specific metrics by name.
@@ -153,7 +155,7 @@ function get_custom_metrics {
     echo "INFO: Metrics will be collected from [$(date -d "@${DATE_START}")] to [$(date -d "@${DATE_END}")]"
     for METRIC in ${GATHER_MONIT_CUSTOM_METRICS}; do
         echo "INFO: Getting metric range: ${METRIC}"
-        prom_query_range "${METRIC}" "${METRIC}"
+        prom_get_query_metric "${METRIC}"
     done
 }
 
@@ -179,7 +181,7 @@ function get_discovery_metrics {
         for PREFIX in ${GATHER_MONIT_DISCOVERY_PREFIXES}; do
             if [[ "${METRIC}" =~ ^${PREFIX}.* ]]; then
                 echo "INFO: Getting metric range: ${METRIC}"
-                prom_query_range "${METRIC}" "${METRIC}" ;
+                prom_get_query_metric "${METRIC}"
             fi
         done
     done < "${MONITORING_PATH}/prometheus-metrics.txt"
