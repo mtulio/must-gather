@@ -77,26 +77,28 @@ function init {
 
     get_env
 
-    # Setting: Timestamp to Prometheus' query range
+    # Query Param: 'start' and 'end' timestamp
     local _START_HUMAN=${GATHER_MONIT_START_DATE:-${GATHER_MONIT_START_DATE_DEFAULT}}
-    declare -g DATE_START=$(date -d "${_START_HUMAN}" +%s)
     local _END_HUMAN=${GATHER_MONIT_END_DATE:-${GATHER_MONIT_END_DATE_DEFAULT}}
+    declare -g DATE_START=$(date -d "${_START_HUMAN}" +%s)
     declare -g DATE_END=$(date -d "${_END_HUMAN}" +%s)
 
-    # Setting: Metric resolution. Low resolution in longer range could be limited to 11k datapoints
+    # Query Param: 'step'. Low metric resolution with long range could be limited to 11k datapoints.
     declare -g QUERY_STEP=${GATHER_MONIT_QUERY_STEP:-${GATHER_MONIT_QUERY_STEP_DEFAULT}}
 
     declare -g PROM_API_QSTR="start=${DATE_START}&end=${DATE_END}&step=${QUERY_STEP}"
 
-    echo "INFO: Metrics config time range from=${DATE_START} to=${DATE_END} step=${QUERY_STEP}"
-    echo "INFO: Metrics human  time range from=[$(date -d "@${DATE_START}")] to [$(date -d "@${DATE_END}")]"
-    echo "INFO: Config Env GATHER_MONIT_START_DATE: ${GATHER_MONIT_START_DATE}"
-    echo "INFO: Config Env GATHER_MONIT_END_DATE: ${GATHER_MONIT_END_DATE}"
-    echo "INFO: Config Env GATHER_MONIT_QUERY_STEP: ${GATHER_MONIT_QUERY_STEP}"
-    echo "INFO: Config Env GATHER_MONIT_CUSTOM_METRICS: ${GATHER_MONIT_CUSTOM_METRICS}"
-    echo "INFO: Config Env GATHER_MONIT_DISCOVERY_PREFIXES: ${GATHER_MONIT_DISCOVERY_PREFIXES}"
-    echo "INFO: Prometheus endpoint: https://${PROM_HOST}"
-    echo "INFO: Prometheus base query: ${PROM_API}/<uri>?query=<metric>&${PROM_API_QSTR}"
+    cat <<-EOF
+    INFO: Metrics config time range from=${DATE_START} to=${DATE_END} step=${QUERY_STEP}
+    INFO: Metrics human  time range from=[$(date -d "@${DATE_START}")] to [$(date -d "@${DATE_END}")]
+    INFO: Config Env GATHER_MONIT_START_DATE: ${GATHER_MONIT_START_DATE}
+    INFO: Config Env GATHER_MONIT_END_DATE: ${GATHER_MONIT_END_DATE}
+    INFO: Config Env GATHER_MONIT_QUERY_STEP: ${GATHER_MONIT_QUERY_STEP}
+    INFO: Config Env GATHER_MONIT_CUSTOM_METRICS: ${GATHER_MONIT_CUSTOM_METRICS}
+    INFO: Config Env GATHER_MONIT_DISCOVERY_PREFIXES: ${GATHER_MONIT_DISCOVERY_PREFIXES}
+    INFO: Prometheus endpoint: https://${PROM_HOST}
+    INFO: Prometheus base query: ${PROM_API}/<uri>?query=<metric>&${PROM_API_QSTR}"
+EOF
 }
 
 function cleanup {
@@ -155,7 +157,6 @@ function get_discovery_metrics {
     fi
     echo "INFO: Collecting metrics by prefixes..."
 
-    #echo "INFO: Discovery all metrics' name and save on ${MONITORING_PATH}/prometheus-metrics.txt"
     prom_get_api "label/__name__/values" \
         | python2 -c \
             'import json,sys;v=[];[ v.append(d) for d in json.load(sys.stdin)["data"]];print("\n".join(v))' \
