@@ -109,20 +109,23 @@ function oc_get {
 }
 
 function prom_get_api {
-    local API_URI="/api/v1/${1}"
+    local API_URI="/api/v1/${1}"; shift
+    local DATA_PATH="${1}"; shift
+
     echo "INFO: Collecting ${API_URI} endpoint from ${PROM_HOST}"
     oc_get \
         --server="https://${PROM_HOST}" \
-        --raw="${API_URI}"
+        --raw="${API_URI}" \
+          | gzip > "${DATA_PATH}"
 }
 
-function prom_get_query_metric {
-    local METRIC="${1}"; shift
-    local QSTR="query=${METRIC}&start=${DATE_START}&end=${DATE_END}&step=${QUERY_STEP}"
+function prom_get_query_range {
+    local QUERY="${1}"; shift
+    local QSTR="query=${QUERY}&start=${DATE_START}&end=${DATE_END}&step=${QUERY_STEP}"
 
     prom_get_api \
         "query_range?${QSTR}" \
-        | gzip > "${PROM_PATH}/metric-${METRIC}.json.gz"
+        "${PROM_PATH}/query-${QUERY}.json.gz"
 }
 
 #
@@ -137,7 +140,7 @@ function get_custom_metrics {
 
     echo "INFO: Metrics will be collected from [$(date -d "@${DATE_START}")] to [$(date -d "@${DATE_END}")]"
     for METRIC in ${GATHER_MONIT_CUSTOM_METRICS}; do
-        prom_get_query_metric "${METRIC}"
+        prom_get_query_range "${METRIC}"
     done
 }
 
@@ -162,7 +165,7 @@ function get_discovery_metrics {
     while read METRIC; do
         for PREFIX in ${GATHER_MONIT_DISCOVERY_PREFIXES}; do
             if [[ "${METRIC}" =~ ^${PREFIX}.* ]]; then
-                prom_get_query_metric "${METRIC}"
+                prom_get_query_range "${METRIC}"
             fi
         done
     done < "${MONITORING_PATH}/prometheus-metrics.txt"
