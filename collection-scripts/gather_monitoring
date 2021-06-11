@@ -89,7 +89,7 @@ echo "INFO: Config Env GAHTER_MONIT_END_DATE: ${GAHTER_MONIT_END_DATE}"
 echo "INFO: Config Env GAHTER_MONIT_QUERY_STEP: ${GAHTER_MONIT_QUERY_STEP}"
 echo "INFO: Config Env GATHER_MONIT_CUSTOM_METRICS: ${GATHER_MONIT_CUSTOM_METRICS}"
 echo "INFO: Config Env GATHER_MONIT_DISCOVERY_PREFIXES: ${GATHER_MONIT_DISCOVERY_PREFIXES}"
-echo "INFO: Prometheus endpoint URL: ${PROM_URL}"
+echo "INFO: Prometheus Host: ${PROM_HOST}"
 
 
 function cleanup {
@@ -107,13 +107,13 @@ function prom_get {
 
     oc_get \
         --server="https://${PROM_HOST}" \
-        --raw="/api/v1/${1}" \
+        --raw="/api/v1/${1}"
 
 }
 
 function prom_get_query_range {
     local QSTR="&query=${1}&start=${DATE_START}&end=${DATE_END}&step=${QUERY_STEP}"
-
+    echo "INFO: QSTR=${QSTR}"
     prom_get \
         "query_range${QSTR}" \
         | gzip > "${PROM_PATH}/metric-${METRIC_FILE}.json.gz"
@@ -163,15 +163,6 @@ function get_discovery_metrics() {
     fi
 
     echo "INFO: Discovery all metrics' name and save on ${MONITORING_PATH}/prometheus-metrics.txt"
-    # "${CURL_CMD[@]}" \
-    #     -H "Authorization: Bearer ${SS_TOKEN}" \
-    #     -H "Accept-encoding: gzip" \
-    #     -g "${PROM_URL}/api/v1/label/__name__/values" \
-    #     | gunzip \
-    #     | python2 -c \
-    #         'import json,sys;v=[];[ v.append(d) for d in json.load(sys.stdin)["data"]];print("\n".join(v))' \
-    #         > "${MONITORING_PATH}/prometheus-metrics.txt"
-
     prom_get "label/__name__/values" \
         | python2 -c \
             'import json,sys;v=[];[ v.append(d) for d in json.load(sys.stdin)["data"]];print("\n".join(v))' \
@@ -200,8 +191,8 @@ function get_alerts() {
     # using oc get --raw because we directly control it and have standardized debugging on it
     oc_get \
         --server="https://${PROM_HOST}" \
-        -raw=/api/v1/rules?type=alert \
-            2> "${MONITORING_PATH}/alert.err" \
+        --raw=/api/v1/rules?type=alert \
+            2> "${MONITORING_PATH}/alerts.err" \
             >  "${MONITORING_PATH}/alerts.json"
 }
 
