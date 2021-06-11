@@ -52,7 +52,7 @@ declare -r PROM_HOST=$(oc -n "${MONIT_NS}" get route prometheus-k8s -o jsonpath=
 function get_env {
     oc -n "${MONIT_NS}" extract "cm/${MONIT_ENV}" \
         --keys=env \
-        --to="${MONITORING_PATH}/" 1&>2 2> /dev/null || true
+        --to="${MONITORING_PATH}/" 2>&1 >/dev/null || true
 
     echo "INFO: Get custom metrics from ConfigMap ${MONIT_ENV} on project ${MONIT_NS}"
     if [[ -s "${MONITORING_PATH}/env" ]]; then
