@@ -8,7 +8,7 @@ set -o pipefail
 BASE_COLLECTION_PATH="../must-gather"
 MONITORING_PATH="${BASE_COLLECTION_PATH}/monitoring"
 
-mkdir -p "${MONITORING_PATH}"
+mkdir -p "${MONITORING_PATH}/"{top,}
 
 MONITORING_ROUTE="$(oc get routes -n openshift-monitoring prometheus-k8s -o jsonpath={.status.ingress[0].host})"
 SA_TOKEN="$(oc sa get-token default)"
@@ -28,19 +28,30 @@ oc get\
 rm "${MONITORING_PATH}/ca-bundle.crt"
 
 function get_top_nodes {
-    oc adm top node &> "${MONITORING_PATH}/adm-top-nodes.out"
+    oc adm top node &> "${MONITORING_PATH}/top/adm-top-nodes.out"
 }
 
 function get_top_pods {
-    oc adm top pod -A &> "${MONITORING_PATH}/adm-top-pods.out"
+    oc adm top pod -A &> "${MONITORING_PATH}/top/adm-top-pods.out"
 }
 
 function get_top_images {
-    oc adm top images &> "${MONITORING_PATH}/adm-top-images.out"
+    oc adm top images &> "${MONITORING_PATH}/top/adm-top-images.out"
 }
 
 function get_top_is {
-    oc adm top imagestreams &> "${MONITORING_PATH}/adm-top-imagestreams.out"
+    oc adm top imagestreams &> "${MONITORING_PATH}/top/adm-top-imagestreams.out"
+}
+
+function get_nodes {
+    oc get nodes -o jsonpath='{.items[*].metadata.name}'
+}
+
+function get_nodes_os_top {
+    for NODE in `get_nodes || ''`; do
+        echo $NODE
+        oc debug node/${NODE} -- chroot /host /bin/bash -c "top -bc -n1 -w192 |head -n 30" &>> "${MONITORING_PATH}/top/os-top-${NODE}.out"
+    done
 }
 
 function get_top {
@@ -56,6 +67,9 @@ function get_top {
 
     echo "INFO: Collecting 'oc adm top imagestreams'"
     get_top_is || true
+
+    echo "INFO: Collecting OS top 30 proc: 'top -bc -n1 -w192'"
+    get_nodes_os_top || true
 }
 
 get_top
