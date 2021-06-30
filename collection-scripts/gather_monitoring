@@ -68,6 +68,22 @@ alertmanager_get() {
       2> "$result_path.stderr"
 }
 
+monitoring_gather_by_replica(){
+  echo "Collecting metrics for each replica..."
+  local pods=$(oc get pods -n openshift-monitoring -l prometheus=k8s -o jsonpath='{.items[*].metadata.name}')
+
+  echo "Replicas found: $pods"
+  for POD in ${pods}; do
+    prom_get_by_replica ${POD} rules ${POD}/rules   || true
+    prom_get_by_replica ${POD} targets targets   || true
+    prom_get_by_replica ${POD} alertmanagers ${POD}/alertmanagers  || true
+    prom_get_by_replica ${POD} status/config ${POD}/status/config || true
+    prom_get_by_replica ${POD} status/flags ${POD}/status/flags || true
+    prom_get_by_replica ${POD} status/runtimeinfo ${POD}/status/runtimeinfo || true
+    prom_get_by_replica ${POD} status/buildinfo ${POD}/status/buildinfo || true
+    prom_get_by_replica ${POD} status/tsdb ${POD}/status/tsdb || true
+  done
+}
 
 monitoring_gather(){
   init
@@ -83,6 +99,8 @@ monitoring_gather(){
   prom_get status/tsdb status/tsdb || true
 
   alertmanager_get status status || true
+
+  monitoring_gather_by_replica || true
 
   # force disk flush to ensure that all data gathered are written
   sync
