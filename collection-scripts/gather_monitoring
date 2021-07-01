@@ -70,12 +70,12 @@ alertmanager_get() {
 
 monitoring_gather_by_replica(){
   echo "Collecting metrics for each replica..."
-  local pods=$(oc get pods -n openshift-monitoring -l prometheus=k8s -o jsonpath='{.items[*].metadata.name}')
+  local pods="$(oc get pods -n openshift-monitoring -l prometheus=k8s -o jsonpath='{.items[*].metadata.name}')"
 
   echo "Replicas found: $pods"
   for POD in ${pods}; do
     prom_get_by_replica ${POD} rules ${POD}/rules   || true
-    prom_get_by_replica ${POD} targets targets   || true
+    prom_get_by_replica ${POD} targets ${POD}/targets   || true
     prom_get_by_replica ${POD} alertmanagers ${POD}/alertmanagers  || true
     prom_get_by_replica ${POD} status/config ${POD}/status/config || true
     prom_get_by_replica ${POD} status/flags ${POD}/status/flags || true
