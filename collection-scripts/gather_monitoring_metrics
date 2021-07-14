@@ -80,10 +80,10 @@ function init {
     get_env
 
     # Query Param: 'start' and 'end' timestamp
-    local _START_HUMAN=${GATHER_MONIT_START_DATE:-${GATHER_MONIT_START_DATE_DEFAULT}}
-    local _END_HUMAN=${GATHER_MONIT_END_DATE:-${GATHER_MONIT_END_DATE_DEFAULT}}
-    declare -g DATE_START=$(date -d "${_START_HUMAN}" +%s)
-    declare -g DATE_END=$(date -d "${_END_HUMAN}" +%s)
+    local date_start_human=${GATHER_MONIT_START_DATE:-${GATHER_MONIT_START_DATE_DEFAULT}}
+    local date_end_human=${GATHER_MONIT_END_DATE:-${GATHER_MONIT_END_DATE_DEFAULT}}
+    declare -g DATE_START=$(date -d "${date_start_human}" +%s)
+    declare -g DATE_END=$(date -d "${date_end_human}" +%s)
 
     # Query Param: 'step'. Low metric resolution with long range could be limited to 11k datapoints.
     declare -g QUERY_STEP=${GATHER_MONIT_QUERY_STEP:-${GATHER_MONIT_QUERY_STEP_DEFAULT}}
@@ -115,21 +115,21 @@ function oc_get {
 }
 
 function prom_get_api {
-    local API_URI="${PROM_API}/${1}"; shift
+    local api_uri="${PROM_API}/${1}"; shift
 
     oc_get \
         --server="https://${PROM_HOST}" \
-        --raw="${API_URI}"
+        --raw="${api_uri}"
 }
 
 function prom_get_query_range {
-    local METRIC="${1}"; shift
-    local FILE_OK="${PROM_PATH}/metric-${METRIC}.json.gz";
-    local FILE_ERR="${PROM_PATH}/metric-${METRIC}.stderr";
-    local API_URI="query_range?query=${METRIC}&${PROM_API_QSTR}"
+    local metric="${1}"; shift
+    local file_ok="${PROM_PATH}/metric-${metric}.json.gz";
+    local file_err="${PROM_PATH}/metric-${metric}.stderr";
+    local api_uri="query_range?query=${metric}&${PROM_API_QSTR}"
 
-    echo "INFO: Collecting metric /query_range?query=${METRIC}"
-    prom_get_api "${API_URI}" 2> "${FILE_ERR}" | gzip > "${FILE_OK}"
+    echo "INFO: Collecting metric /query_range?query=${metric}"
+    prom_get_api "${api_uri}" 2> "${file_err}" | gzip > "${file_ok}"
 }
 
 #
