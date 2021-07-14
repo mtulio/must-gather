@@ -164,7 +164,7 @@ function get_discovery_metrics {
             'import json,sys;v=[];[ v.append(d) for d in json.load(sys.stdin)["data"]];print("\n".join(v))' \
                 > "${MONITORING_PATH}/prometheus-metrics.txt"
 
-    # TODO: fix it O(m*n) ;(
+    # lookup metrics into current available.
     while read METRIC; do
         for PREFIX in ${GATHER_MONIT_DISCOVERY_PREFIXES}; do
             if [[ "${METRIC}" =~ ^${PREFIX}.* ]]; then
@@ -172,22 +172,6 @@ function get_discovery_metrics {
             fi
         done
     done < "${MONITORING_PATH}/prometheus-metrics.txt"
-}
-
-#
-# Gather current alerts.
-#
-function get_alerts {
-
-    set -o nounset
-    set -o errexit
-
-    # using oc get --raw because we directly control it and have standardized debugging on it
-    oc_get \
-        --server="https://${PROM_HOST}" \
-        --raw=/api/v1/rules?type=alert \
-            2> "${MONITORING_PATH}/alerts.err" \
-            >  "${MONITORING_PATH}/alerts.json"
 }
 
 #> Main
@@ -198,9 +182,6 @@ get_custom_metrics
 
 # Collect metrics by prefix
 get_discovery_metrics
-
-# Collect Prometheus Alerts
-get_alerts
 
 # force disk flush to ensure that all data gathered is accessible in the copy container
 echo "INFO: Must-gather monitoring finished"
