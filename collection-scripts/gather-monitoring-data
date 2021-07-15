@@ -47,7 +47,7 @@ function get_alphanum_str {
 }
 
 function echo_info {
-    echo "[$(date +%H%m%S)] INFO: $@"
+    echo "[$(date +%Y%M%d-%H%m%S)] INFO: $@"
 }
 
 # ##############
