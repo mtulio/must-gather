@@ -10,13 +10,13 @@
 # - GATHER_MONIT_END_DATE: ending human readable date string (date -d). Default: "now".
 # - GATHER_MONIT_QUERY_STEP: metric resolution to get from Prometheus. Default: "1m".
 # - GATHER_PROM_QUERIES_RANGE: list of additional metrics name to be collected. Default: Undefined
-# - GATHER_MONIT_DISCOVERY_PREFIXES: discovery metrics by prefixes. Default: ''
+# - GATHER_PROM_QUERIES_RANGE_PREFIX: discovery metrics by prefixes. Default: ''
 # - GATHER_MONIT_TOKEN: optional service account token to gather Prometheus and Grafana API. Default: Undefined
 #
 # To create the ConfigMap:
 # $ echo -e 'GATHER_MONIT_START_DATE="15 days ago"\nGATHER_MONIT_QUERY_STEP="5m"' > env
 # $ echo -e 'GATHER_PROM_QUERIES_RANGE="up"' > env
-# $ echo -e 'GATHER_MONIT_DISCOVERY_PREFIXES="apiserver_"' > env
+# $ echo -e 'GATHER_PROM_QUERIES_RANGE_PREFIX="apiserver_"' > env
 # $ oc create configmap must-gather-env -n openshift-monitoring --from-file=env=env
 #
 # References:
@@ -44,6 +44,10 @@ function url_encode {
 # Remove special chars from a string and return it
 function get_alphanum_str {
     echo -n "$@" | tr -dc '[:alnum:]-_'
+}
+
+function echo_info {
+    echo "[$(date +%H%m%S)] INFO: $@"
 }
 
 # ##############
@@ -78,7 +82,7 @@ function prom_get_expression_query {
     local file_ok="${file_base}.json.gz";
     local file_err="${file_base}.stderr";
 
-    echo "INFO: Collecting query /${api_expression}?query=${query}"
+    echo_info "Collecting query /${api_expression}?query=${query}"
     if [[ ! -f "${MG_PROM_PATH}/${api_expression}.log" ]]; then
         echo "file_path_prefix;req_expression_query" > "${MG_PROM_PATH}/${api_expression}.log"
     fi
@@ -94,12 +98,12 @@ function prom_get_expression_query {
 function get_query_range {
 
     if [[ -z "${GATHER_PROM_QUERIES_RANGE:-}" ]]; then
-        echo "INFO: No queries was found to collect from env GATHER_PROM_QUERIES_RANGE"
+        echo_info "No queries was found to collect from env GATHER_PROM_QUERIES_RANGE"
         return
     fi
     mkdir -p "${MG_METRICS_PATH}"
 
-    echo "INFO: Collecting queries range..."
+    echo_info "Collecting queries range..."
 
     for query in ${GATHER_PROM_QUERIES_RANGE}; do
         prom_get_expression_query "query_range" "${query}"
@@ -113,12 +117,12 @@ function get_query_range {
 function get_query {
 
     if [[ -z "${GATHER_PROM_QUERIES:-}" ]]; then
-        echo "INFO: No queries was found to collect from env GATHER_PROM_QUERIES"
+        echo_info "No queries was found to collect from env GATHER_PROM_QUERIES"
         return
     fi
     mkdir -p "${MG_METRICS_PATH}"
 
-    echo "INFO: Collecting instant queries..."
+    echo_info "Collecting instant queries..."
 
     for query in ${GATHER_PROM_QUERIES}; do
         prom_get_expression_query "query" "${query}"
@@ -127,15 +131,15 @@ function get_query {
 
 #
 # Discovery and gather metrics by prefixes.
-# Env var: GATHER_MONIT_DISCOVERY_PREFIXES
+# Env var: GATHER_PROM_QUERIES_RANGE_PREFIX
 #
-function get_discovery_prefixes {
+function get_query_range_discovery {
 
-    if [[ -z "${GATHER_MONIT_DISCOVERY_PREFIXES:-}" ]]; then
-        echo "INFO: No metrics was found to collect from env GATHER_MONIT_DISCOVERY_PREFIXES"
+    if [[ -z "${GATHER_PROM_QUERIES_RANGE_PREFIX:-}" ]]; then
+        echo_info " No metrics was found to collect from env GATHER_PROM_QUERIES_RANGE_PREFIX"
         return
     fi
-    echo "INFO: Collecting metrics by prefixes..."
+    echo_info "Collecting metrics by prefixes..."
 
     # dump current available metrics to discovery/filter desired as defined on env var
     prom_get_api "label/__name__/values" \
@@ -147,10 +151,10 @@ function get_discovery_prefixes {
             ' > "${MG_PROM_PATH}/prometheus-metrics.txt"
 
     # lookup metrics into current dump
-    while read METRIC; do
-        for PREFIX in ${GATHER_MONIT_DISCOVERY_PREFIXES}; do
-            if [[ "${METRIC}" =~ ^${PREFIX}.* ]]; then
-                prom_get_expression_query "query_range" "${METRIC}"
+    while read metric; do
+        for prefix in ${GATHER_PROM_QUERIES_RANGE_PREFIX}; do
+            if [[ "${metric}" =~ ^${prefix}.* ]]; then
+                prom_get_expression_query "query_range" "${metric}"
             fi
         done
     done < "${MG_PROM_PATH}/prometheus-metrics.txt"
@@ -177,12 +181,12 @@ function get_env {
         --keys=env \
         --to="${MG_MONITORING_PATH}/" 2>&1 >/dev/null || true
 
-    echo "INFO: Get custom metrics from ConfigMap ${MONIT_ENV} on project ${MONIT_NS}"
+    echo_info "Get custom metrics from ConfigMap ${MONIT_ENV} on project ${MONIT_NS}"
     if [[ -s "${MG_MONITORING_PATH}/env" ]]; then
-        echo "INFO: Loading custom environments variables from ${MG_MONITORING_PATH}/env"
+        echo_info "Loading custom environments variables from ${MG_MONITORING_PATH}/env"
         source "${MG_MONITORING_PATH}/env"
     else
-        echo "INFO: Unable to load custom environments from ConfigMap, ignoring."
+        echo_info "Unable to load custom environments from ConfigMap, ignoring."
     fi
 }
 
@@ -195,7 +199,7 @@ function init {
     declare -g MONIT_NS="openshift-monitoring"
     declare -g MONIT_ENV="must-gather-env"
 
-    declare -g MG_BASE_PATH="/must-gather"
+    declare -g MG_BASE_PATH="${MG_BASE_PATH:-"/must-gather"}"
     declare -g MG_MONITORING_PATH="${MG_BASE_PATH}/monitoring"
     declare -g MG_PROM_PATH="${MG_MONITORING_PATH}/prometheus"
     declare -g MG_METRICS_PATH="${MG_PROM_PATH}/metrics"
@@ -231,7 +235,7 @@ INFO: Config Env GATHER_MONIT_END_DATE: ${GATHER_MONIT_END_DATE:-""}
 INFO: Config Env GATHER_MONIT_QUERY_STEP: ${GATHER_MONIT_QUERY_STEP:-""}
 INFO: Config Env GATHER_PROM_QUERIES_RANGE: ${GATHER_PROM_QUERIES_RANGE:-""}
 INFO: Config Env GATHER_PROM_QUERIES: ${GATHER_PROM_QUERIES:-""}
-INFO: Config Env GATHER_MONIT_DISCOVERY_PREFIXES: ${GATHER_MONIT_DISCOVERY_PREFIXES:-""}
+INFO: Config Env GATHER_PROM_QUERIES_RANGE_PREFIX: ${GATHER_PROM_QUERIES_RANGE_PREFIX:-""}
 INFO: Prometheus endpoint: https://${PROM_HOST}
 INFO: Prometheus base query: ${PROM_API_PATH}/<expression>?query=<metric>&${PROM_API_QSTR}"
 EOF
@@ -250,11 +254,13 @@ function main {
     # Gather a query range
     get_query_range
 
-    # Gather metrics by prefix
-    get_discovery_prefixes
+    # Gather a query range by prefix (discovery)
+    get_query_range_discovery
 
     # force disk flush to ensure that all data gathered is accessible in the copy container
     cleanup
     sync
+
+    echo_info "Done"
 }
 main
