@@ -137,12 +137,16 @@ function get_discovery_prefixes {
     fi
     echo "INFO: Collecting metrics by prefixes..."
 
+    # dump current available metrics to discovery/filter desired as defined on env var
     prom_get_api "label/__name__/values" \
-        | python2 -c \
-            'import json,sys;v=[];[ v.append(d) for d in json.load(sys.stdin)["data"]];print("\n".join(v))' \
-                > "${MG_PROM_PATH}/prometheus-metrics.txt"
+        | python2 -c '\
+                import json,sys;\
+                v=[];\
+                [ v.append(d) for d in json.load(sys.stdin)["data"] ];\
+                print( "\n".join(v) );\
+            ' > "${MG_PROM_PATH}/prometheus-metrics.txt"
 
-    # lookup metrics into current available.
+    # lookup metrics into current dump
     while read METRIC; do
         for PREFIX in ${GATHER_MONIT_DISCOVERY_PREFIXES}; do
             if [[ "${METRIC}" =~ ^${PREFIX}.* ]]; then
